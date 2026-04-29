@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderFicheList();
       initAccordion();
       showSharedFiche(sharedFiche);
+      updateNavBar();
       return;
     } catch (e) {
       console.warn('Shared fiche parse error:', e);
@@ -161,6 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (firstAccItem) _accordionOpen(firstAccItem);
   updatePreview();
   renderFicheList();
+  updateNavBar();
 });
 
 
@@ -407,6 +409,7 @@ function switchView(view) {
 
   // Always refresh preview when opening it
   if (!toEditor) updatePreview();
+  updateNavBar();
 }
 
 /** Retour au formulaire depuis « Voir la fiche » — réutilise l’état déjà dans le DOM (même flux que editFiche) */
@@ -429,6 +432,26 @@ function switchTab(tab) {
   document.getElementById('tab-list-btn').classList.toggle('active', !toForm);
 
   if (!toForm) renderFicheList();
+  updateNavBar();
+}
+
+/** Flèche navbar : retour fiche → éditeur, liste → onglet formulaire ; masquée sur accueil (éditeur + Nouvelle fiche). */
+function updateNavBar() {
+  const back = document.getElementById('topnav-back');
+  if (!back) return;
+  const previewOn = document.getElementById('previewView')?.classList.contains('active');
+  const listOn = document.getElementById('tab-list')?.classList.contains('active');
+  const showBack = previewOn || listOn;
+  if (showBack) back.removeAttribute('hidden');
+  else back.setAttribute('hidden', '');
+}
+
+function navBarBack() {
+  if (document.getElementById('previewView')?.classList.contains('active')) {
+    editFromPreview();
+    return;
+  }
+  switchTab('form');
 }
 
 // ══════════════════════════════════════
@@ -496,7 +519,6 @@ function getActiveSharePayload() {
 function openShareMenu(ctx) {
   _shareContext = ctx || null;
   const m = document.getElementById('share-modal');
-  const btnOpen = document.getElementById('btn-share-open');
   const nativeBtn = document.getElementById('btn-share-native');
   if (m) {
     m.classList.add('is-open');
@@ -505,19 +527,22 @@ function openShareMenu(ctx) {
     else if (nativeBtn) nativeBtn.style.display = 'none';
   }
   document.body.style.overflow = 'hidden';
-  if (btnOpen) btnOpen.setAttribute('aria-expanded', 'true');
+  document.querySelectorAll('.share-trigger[aria-haspopup="dialog"]').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'true');
+  });
 }
 
 function closeShareMenu() {
   const m = document.getElementById('share-modal');
-  const btnOpen = document.getElementById('btn-share-open');
   if (m) {
     m.classList.remove('is-open');
     m.setAttribute('aria-hidden', 'true');
   }
   document.body.style.overflow = '';
   _shareContext = null;
-  if (btnOpen) btnOpen.setAttribute('aria-expanded', 'false');
+  document.querySelectorAll('.share-trigger[aria-haspopup="dialog"]').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'false');
+  });
 }
 
 async function shareCopyLink() {
@@ -1411,14 +1436,14 @@ async function generatePDF(fiche) {
   const ML = 18, W = 210, TW = 174;
 
   const C = {
-    ink:       [30,  27,  75],
-    gold:      [236, 72,  153],
-    goldLight: [251, 207, 232],
-    red:       [219, 39,  119],
-    dark:      [30,  27,  75],
-    muted:     [100, 116, 139],
-    border:    [224, 231, 255],
-    section:   [245, 243, 255],
+    ink:       [28,  53,  87],
+    gold:      [91,  143, 168],
+    goldLight: [240, 235, 224],
+    red:       [192, 57,  43],
+    dark:      [28,  53,  87],
+    muted:     [107, 127, 142],
+    border:    [91,  143, 168],
+    section:   [240, 235, 224],
     white:     [255, 255, 255],
     greyLight: [148, 163, 184]
   };
@@ -1762,6 +1787,7 @@ Object.assign(window, {
   switchView,
   editFromPreview,
   switchTab,
+  navBarBack,
   openShareMenu,
   closeShareMenu,
   shareCopyLink,
