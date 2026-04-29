@@ -509,7 +509,7 @@ function closeDetailPanel(opts = {}) {
 let _detailFlagGen = 0;
 
 /**
- * Drapeau 32×24 au-dessus du titre : code ISO si présent sur la fiche, sinon restcountries + flagcdn.
+ * Drapeau 64×48 dans un cercle (72px) au-dessus du titre : code ISO ou restcountries + flagcdn.
  * Échec silencieux.
  * @param {object} f
  */
@@ -519,10 +519,13 @@ function scheduleDetailCountryFlag(f) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
+  const imgTag = code =>
+    `<img class="detail-flag-img" src="https://flagcdn.com/64x48/${code}.png" width="64" height="48" alt="" loading="lazy">`;
+
   const ccQuick = f.countryCode && String(f.countryCode).trim();
   if (/^[a-z]{2}$/i.test(ccQuick)) {
     const code = ccQuick.toLowerCase();
-    wrap.innerHTML = `<img src="https://flagcdn.com/32x24/${code}.png" width="32" height="24" alt="" loading="lazy">`;
+    wrap.innerHTML = imgTag(code);
     return;
   }
 
@@ -550,7 +553,7 @@ function scheduleDetailCountryFlag(f) {
       clearTimeout(t);
     }
     if (gen !== _detailFlagGen || !wrap.isConnected || !code) return;
-    wrap.innerHTML = `<img src="https://flagcdn.com/32x24/${code}.png" width="32" height="24" alt="" loading="lazy">`;
+    wrap.innerHTML = imgTag(code);
   })();
 }
 
@@ -592,7 +595,7 @@ function renderFicheDetail(idx) {
 
   el.innerHTML = `
     <header class="detail-head">
-      <div class="detail-flag-wrap" id="detail-flag-wrap" aria-hidden="true"></div>
+      <div id="detail-flag-wrap" class="detail-flag-ring" aria-hidden="true"></div>
       <h1 class="detail-h1">${escHtml(f.dest || 'Sans titre')}</h1>
       <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
     </header>
@@ -1462,7 +1465,6 @@ function renderFicheList() {
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); editFiche(${i})">Modifier</button>
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); shareFiche(${i})">Partager</button>
           <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${i})">PDF</button>
-          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); exportSingleFicheJSON(${i})">↓ JSON</button>
           <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
       </div>
@@ -1561,30 +1563,6 @@ function exportAllJSON() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'travel-book-chachou-backup.json'; a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** Export JSON d’une seule fiche (depuis la liste). */
-function exportSingleFicheJSON(idx) {
-  const f = fiches[idx];
-  if (!f) {
-    toast('Fiche introuvable');
-    return;
-  }
-  const blob = new Blob([JSON.stringify(f, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const raw = (f.dest || 'fiche')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\w\s-]/g, ' ')
-    .trim()
-    .slice(0, 48)
-    .replace(/\s+/g, '-')
-    .toLowerCase();
-  a.href = url;
-  a.download = `${raw || 'fiche'}.json`;
-  a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -1876,7 +1854,6 @@ Object.assign(window, {
   clearLocation,
   addItem,
   exportAllJSON,
-  exportSingleFicheJSON,
   importJSON,
   exportPDF,
   saveFiche,

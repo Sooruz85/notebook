@@ -614,14 +614,11 @@
     #detailView::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
     #detailView .detail-scroll.preview-inner {
-      flex: 1 1 auto;
-      min-height: 0;
       width: 100%;
       max-width: none;
       margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      padding-bottom: clamp(1rem, 3vw, 2rem);
+      display: block;
+      padding: 24px 0;
       box-sizing: border-box;
     }
 
@@ -634,23 +631,36 @@
       box-shadow: var(--shadow-card);
       width: 90%;
       max-width: 680px;
-      margin: 24px auto;
-      padding: 32px;
-      flex: 1 1 auto;
+      margin: 0 auto;
+      padding: 32px 32px 24px;
       box-sizing: border-box;
-      min-height: min(92vh, 100%);
     }
 
-    .detail-flag-wrap:not(:empty) {
-      margin-bottom: 12px;
+    .detail-flag-ring {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 3px solid var(--bleu-mid);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      margin: 0 auto 16px;
+      flex-shrink: 0;
     }
 
-    .detail-flag-wrap img {
+    .detail-flag-ring:empty {
+      display: none;
+      margin: 0 !important;
+    }
+
+    .detail-flag-img {
+      width: 64px;
+      height: 48px;
       display: block;
-      width: 32px;
-      height: 24px;
-      border-radius: 3px;
-      box-shadow: 0 1px 4px rgba(28, 53, 87, 0.15);
+      object-fit: contain;
+      pointer-events: none;
     }
 
     .detail-head { margin-bottom: 1.5rem; }
@@ -730,7 +740,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-top: 1.75rem;
+      margin: 1.75rem 0 0;
       padding-top: 1rem;
       border-top: 1px solid rgba(91, 143, 168, 0.22);
     }
@@ -2013,8 +2023,8 @@
       .form-grid { grid-template-columns: 1fr; }
       .photo-grid { grid-template-columns: repeat(4, 1fr); }
       .preview-inner { padding: 20px 16px 40px; }
-      #detailView .detail-scroll.preview-inner { padding: 0 0 2rem; }
-      .detail-card-shell { width: 94%; margin: 16px auto; padding: 28px; min-height: auto; }
+      #detailView .detail-scroll.preview-inner { padding: 16px 0; }
+      .detail-card-shell { width: 94%; margin: 0 auto; padding: 28px 20px 24px; }
       .preview-cover-title { font-size: 36px; }
       .preview-flag-ring { width: 48px; height: 48px; }
       .share-trigger .share-trigger-label { display: none; }
