@@ -258,26 +258,76 @@ const AUTOCOMPLETE_DATA = {
   ]
 };
 
+let _acFloatPinnedInput = null;
+
+function _acEnsureFloatRoot() {
+  _acEnsureFloatListeners();
+  let el = document.getElementById('ac-dropdown-float');
+  if (!el) {
+    el = document.createElement('ul');
+    el.id = 'ac-dropdown-float';
+    el.className = 'autocomplete-list autocomplete-list--float';
+    el.setAttribute('role', 'listbox');
+    el.hidden = true;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+let _acFloatListeners = false;
+function _acEnsureFloatListeners() {
+  if (_acFloatListeners) return;
+  _acFloatListeners = true;
+  window.addEventListener('scroll', _acReflowFloat, true);
+  window.addEventListener('resize', _acReflowFloat);
+}
+
+function _acReflowFloat() {
+  const inp = _acFloatPinnedInput;
+  const fl = document.getElementById('ac-dropdown-float');
+  if (!inp || !fl || fl.hidden) return;
+  if (!document.body.contains(inp)) {
+    _acClose();
+    return;
+  }
+  _acPositionFloat(inp, fl);
+}
+
+function _acPositionFloat(input, floatEl) {
+  const r = input.getBoundingClientRect();
+  const pad = 8;
+  const vw = document.documentElement.clientWidth;
+  let left = r.left;
+  const w = r.width;
+  if (left + w > vw - pad) left = Math.max(pad, vw - w - pad);
+  if (left < pad) left = pad;
+  floatEl.style.left = `${Math.round(left)}px`;
+  floatEl.style.top = `${Math.round(r.bottom + 2)}px`;
+  floatEl.style.width = `${Math.round(w)}px`;
+  const maxVh = Math.max(120, window.innerHeight - (r.bottom + 2) - pad);
+  floatEl.style.maxHeight = `${Math.min(180, maxVh)}px`;
+}
+
 // ──  Autocomplete engine ──
 function _acAttach(input, dataset) {
-  const list = input.closest('.autocomplete-wrap').querySelector('.autocomplete-list');
   let activeIdx = -1;
 
   input.addEventListener('input', () => {
     const q = input.value.trim();
     activeIdx = -1;
-    if (!q) { _acClose(list); return; }
+    if (!q) { _acClose(); return; }
 
     const hits = dataset
       .filter(s => s.toLowerCase().includes(q.toLowerCase()))
       .slice(0, 7);
 
-    if (hits.length === 0) { _acClose(list); return; }
-    _acRender(input, list, hits, q);
+    if (hits.length === 0) { _acClose(); return; }
+    _acRender(input, hits, q);
   });
 
   input.addEventListener('keydown', e => {
-    const items = list.querySelectorAll('.autocomplete-item');
+    const list = document.getElementById('ac-dropdown-float');
+    const items = list ? list.querySelectorAll('.autocomplete-item') : [];
     if (!items.length) return;
 
     if (e.key === 'ArrowDown') {
@@ -292,30 +342,36 @@ function _acAttach(input, dataset) {
       e.preventDefault();
       items[activeIdx].dispatchEvent(new MouseEvent('click'));
     } else if (e.key === 'Escape') {
-      _acClose(list);
+      _acClose();
     }
   });
 
-  // Close on blur — delay so click on suggestion fires first
-  input.addEventListener('blur', () => setTimeout(() => _acClose(list), 160));
+  input.addEventListener('blur', () =>
+    setTimeout(() => {
+      if (_acFloatPinnedInput === input) _acClose();
+    }, 160)
+  );
 }
 
-function _acRender(input, list, hits, query) {
+function _acRender(input, hits, query) {
+  const list = _acEnsureFloatRoot();
   list.innerHTML = '';
   hits.forEach(hit => {
     const li = document.createElement('li');
     li.className = 'autocomplete-item';
     li.innerHTML = _acHighlight(hit, query);
-    // mousedown prevents blur from firing before click
     li.addEventListener('mousedown', e => e.preventDefault());
     li.addEventListener('click', () => {
       input.value = hit;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      _acClose(list);
+      _acClose();
       input.focus();
     });
     list.appendChild(li);
   });
+  list.hidden = false;
+  _acFloatPinnedInput = input;
+  _acPositionFloat(input, list);
 }
 
 function _acHighlight(text, query) {
@@ -328,7 +384,13 @@ function _acHighlight(text, query) {
   );
 }
 
-function _acClose(list) { list.innerHTML = ''; }
+function _acClose() {
+  const list = document.getElementById('ac-dropdown-float');
+  if (!list) return;
+  list.innerHTML = '';
+  list.hidden = true;
+  _acFloatPinnedInput = null;
+}
 
 function _acSetActive(items, idx) {
   items.forEach((li, i) => li.classList.toggle('ac-active', i === idx));
@@ -813,7 +875,6 @@ function renderList(key, items) {
           value="${escHtml(val)}"
           placeholder="${escHtml(PLACEHOLDERS[key] || '')}"
           autocomplete="off">
-        <ul class="autocomplete-list"></ul>
       </div>
       <button class="list-item-remove" onclick="removeItem('${key}',${i})">✕</button>`;
     container.appendChild(row);
