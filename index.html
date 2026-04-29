@@ -92,7 +92,12 @@
 
     html {
       min-height: 100%;
-      background: transparent;
+      background-color: transparent;
+      background-image: url("./fond2.png");
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      background-repeat: no-repeat;
     }
 
     body {
@@ -105,12 +110,7 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      background-color: transparent;
-      background-image: url("/fond2.png");
-      background-size: cover;
-      background-position: center;
-      background-attachment: fixed;
-      background-repeat: no-repeat;
+      background: none;
     }
 
     /* ══════════════════════════════════════
@@ -359,6 +359,32 @@
       gap: var(--space-section);
     }
 
+    /* Carte unique formulaire — fond à carreaux visible autour */
+    .form-shell {
+      background: rgba(255, 255, 255, 0.60);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      margin: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      box-shadow: var(--shadow-card);
+    }
+
+    .form-shell .article-hero .ds-h1 {
+      color: #1e1b4b;
+    }
+
+    .form-shell .article-hero .ds-secondary {
+      color: #312e81;
+      font-weight: 600;
+    }
+
+    .editor-section {
+      margin: 0;
+      padding: 0;
+    }
+
     .editor-card {
       background: var(--glass-bg);
       backdrop-filter: var(--glass-blur);
@@ -369,25 +395,30 @@
       padding: clamp(1.25rem, 3vw, 1.75rem) clamp(1rem, 3vw, 1.5rem);
     }
 
-    .editor-card--flush {
+    .editor-card--flush,
+    .editor-section--flush {
       padding: 0;
       overflow: hidden;
     }
 
-    .editor-card--flush .accordion {
+    .editor-card--flush .accordion,
+    .editor-section--flush .accordion {
       margin-bottom: 0;
       gap: 0;
       border-radius: var(--radius-2xl);
     }
 
-    .editor-card--flush .accordion-item {
+    .editor-card--flush .accordion-item,
+    .editor-section--flush .accordion-item {
       border: none;
       border-bottom: 1px solid var(--border-soft);
       border-radius: 0;
       box-shadow: none;
     }
-    .editor-card--flush .accordion-item:first-child { border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; }
-    .editor-card--flush .accordion-item:last-child {
+    .editor-card--flush .accordion-item:first-child,
+    .editor-section--flush .accordion-item:first-child { border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; }
+    .editor-card--flush .accordion-item:last-child,
+    .editor-section--flush .accordion-item:last-child {
       border-bottom: none;
       border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
     }
@@ -396,18 +427,20 @@
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
-    /* Sticky actions bar — CTA discrets mais lisibles */
+    /* Actions en bas du formulaire — même carte que le reste */
     .editor-actions {
       flex-shrink: 0;
-      background: var(--glass-bg);
-      backdrop-filter: var(--glass-blur);
-      -webkit-backdrop-filter: var(--glass-blur);
-      border: var(--glass-border);
-      border-radius: var(--glass-radius);
-      margin: 10px clamp(12px, 3vw, 24px);
-      box-shadow: var(--shadow-card);
-      padding: 14px clamp(16px, 4vw, 32px);
-      z-index: 10;
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: none;
+      border-radius: 0;
+      margin: 0;
+      margin-top: 1.25rem;
+      padding: 1.25rem 0 0;
+      border-top: 1px solid rgba(199, 210, 254, 0.75);
+      box-shadow: none;
+      z-index: 1;
     }
 
     .editor-actions-inner {
@@ -1749,10 +1782,39 @@
     /* ══════════════════════════════════════
        Responsive
     ══════════════════════════════════════ */
+    @media (max-width: 767px) {
+      .editor-inner {
+        padding-left: 0;
+        padding-right: 0;
+      }
+
+      #tab-list {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .form-shell {
+        width: 100%;
+        max-width: none;
+        margin: 8px;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+
+      .form-shell .editor-actions-pdf-row,
+      .form-shell .actions-row-2 {
+        flex-direction: column;
+      }
+
+      .form-shell .period-row {
+        flex-direction: column;
+      }
+    }
+
     @media (max-width: 640px) {
       :root { --topnav-h: 52px; --space-section: 1.75rem; }
       .topnav-logo { display: none; }
-      .editor-inner { padding: 20px 16px 24px; }
+      .editor-inner { padding: 20px 0 24px; }
       .editor-profile-wrap { padding-top: 4px; }
       .editor-avatar-ring { width: 128px; height: 128px; }
       .article-hero { margin-bottom: 1.75rem; }
@@ -1811,14 +1873,15 @@
     <div class="editor-scroll">
       <div class="editor-inner">
 
+        <!-- ── FORM TAB ── -->
+        <div class="tab-panel active" id="tab-form">
+
+          <div class="form-shell">
         <div class="editor-profile-wrap">
           <div class="editor-avatar-ring" title="Chachou">
             <img src="/chachou.png" alt="Portrait de Chachou" width="144" height="144" class="editor-avatar" decoding="async" fetchpriority="high" onerror="this.onerror=null;this.src='/assets/profile.png'">
           </div>
         </div>
-
-        <!-- ── FORM TAB ── -->
-        <div class="tab-panel active" id="tab-form">
 
           <header class="article-hero">
             <h1 class="ds-h1">Composer votre fiche</h1>
@@ -1827,7 +1890,7 @@
 
           <div class="article-flow">
 
-          <section class="editor-card" aria-labelledby="h-destination">
+          <section class="editor-section" aria-labelledby="h-destination">
           <h2 class="section-label" id="h-destination">Destination</h2>
           <div class="loc-search-wrap" id="loc-wrap">
             <div id="loc-search-state">
@@ -1858,7 +1921,7 @@
           </section>
 
           <!-- PÉRIODE -->
-          <section class="editor-card" aria-labelledby="h-periode">
+          <section class="editor-section" aria-labelledby="h-periode">
           <h2 class="section-label" id="h-periode">Période</h2>
           <div class="period-row">
             <select id="sel-mois" onchange="updatePreview()">
@@ -1877,7 +1940,7 @@
           </section>
 
           <!-- LISTES — Accordion -->
-          <section class="editor-card editor-card--flush" aria-label="Adresses et listes">
+          <section class="editor-section editor-section--flush" aria-label="Adresses et listes">
           <div class="accordion" id="lists-accordion">
 
             <div class="accordion-item" data-key="hotels">
@@ -1952,7 +2015,7 @@
           </section>
 
           <!-- NOTES -->
-          <section class="editor-card" aria-labelledby="h-notes">
+          <section class="editor-section" aria-labelledby="h-notes">
             <h2 class="section-label" id="h-notes">Notes &amp; impressions</h2>
             <textarea class="notes-textarea" id="notes-textarea"
               placeholder="Transports, budget, ambiance, conseils pratiques, souvenirs..."
@@ -1960,7 +2023,7 @@
           </section>
 
           <!-- PHOTOS -->
-          <section class="editor-card" aria-labelledby="h-photos">
+          <section class="editor-section" aria-labelledby="h-photos">
             <h2 class="section-label" id="h-photos">Photos</h2>
             <div class="photo-drop-zone" id="photo-drop-zone"
               onclick="document.getElementById('photo-file-input').click()"
@@ -1977,9 +2040,22 @@
 
           </div><!-- /article-flow -->
 
-        </div><!-- /tab-form -->
+    <div class="editor-actions">
+      <div class="editor-actions-inner">
+        <div class="editor-actions-pdf-row">
+          <button type="button" class="btn-open-preview" onclick="switchView('preview')">Voir la fiche</button>
+          <button class="btn-pdf" onclick="exportPDF()">↓&nbsp;&nbsp;Télécharger la fiche PDF</button>
+        </div>
+        <div class="actions-row-2">
+          <button class="btn-save" onclick="saveFiche()">Sauvegarder la fiche</button>
+          <button class="btn-new" onclick="newFiche()">Nouvelle fiche</button>
+        </div>
+      </div>
+    </div>
 
-        <!-- ── LIST TAB ── -->
+          </div><!-- /form-shell -->
+
+        </div><!-- /tab-form -->
         <div class="tab-panel" id="tab-list">
           <header class="article-hero tab-list-hero">
             <h1 class="ds-h1">Vos carnets sauvegardés</h1>
@@ -2000,20 +2076,6 @@
 
       </div><!-- /editor-inner -->
     </div><!-- /editor-scroll -->
-
-    <!-- Sticky actions bar -->
-    <div class="editor-actions">
-      <div class="editor-actions-inner">
-        <div class="editor-actions-pdf-row">
-          <button type="button" class="btn-open-preview" onclick="switchView('preview')">Voir la fiche</button>
-          <button class="btn-pdf" onclick="exportPDF()">↓&nbsp;&nbsp;Télécharger la fiche PDF</button>
-        </div>
-        <div class="actions-row-2">
-          <button class="btn-save" onclick="saveFiche()">Sauvegarder la fiche</button>
-          <button class="btn-new" onclick="newFiche()">Nouvelle fiche</button>
-        </div>
-      </div>
-    </div>
 
   </div><!-- /editorView -->
 
