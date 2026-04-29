@@ -509,8 +509,8 @@ function closeDetailPanel(opts = {}) {
 let _detailFlagGen = 0;
 
 /**
- * Drapeau 64×48 dans un cercle (72px) au-dessus du titre : code ISO ou restcountries + flagcdn.
- * Échec silencieux.
+ * Drapeau : nom du pays après la dernière virgule dans `dest` → restcountries translation → cca2 → flagcdn w80.
+ * Échec silencieux (cercle masqué si pas de pays ou API vide / erreur).
  * @param {object} f
  */
 function scheduleDetailCountryFlag(f) {
@@ -519,29 +519,19 @@ function scheduleDetailCountryFlag(f) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  const imgTag = code =>
-    `<img class="detail-flag-img" src="https://flagcdn.com/64x48/${code}.png" width="64" height="48" alt="" loading="lazy">`;
-
-  const ccQuick = f.countryCode && String(f.countryCode).trim();
-  if (/^[a-z]{2}$/i.test(ccQuick)) {
-    const code = ccQuick.toLowerCase();
-    wrap.innerHTML = imgTag(code);
-    return;
-  }
-
   const dest = f.dest || '';
   const lc = dest.lastIndexOf(',');
   const countryName = lc >= 0 ? dest.slice(lc + 1).trim() : '';
   if (!countryName) return;
 
-  const url = `https://restcountries.com/v3.1/name/${encodeURIComponent(countryName)}?fields=cca2`;
+  const apiUrl = `https://restcountries.com/v3.1/translation/${encodeURIComponent(countryName)}?fields=cca2`;
 
   (async () => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10000);
     let code = null;
     try {
-      const r = await fetch(url, { signal: ctrl.signal });
+      const r = await fetch(apiUrl, { signal: ctrl.signal });
       if (!r.ok) return;
       const data = await r.json();
       const hit = Array.isArray(data) && data[0];
@@ -553,7 +543,8 @@ function scheduleDetailCountryFlag(f) {
       clearTimeout(t);
     }
     if (gen !== _detailFlagGen || !wrap.isConnected || !code) return;
-    wrap.innerHTML = imgTag(code);
+    const src = `https://flagcdn.com/w80/${code}.png`;
+    wrap.innerHTML = `<img class="detail-flag-img" src="${src}" alt="" loading="lazy">`;
   })();
 }
 
