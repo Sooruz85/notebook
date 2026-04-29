@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Le travel book de chachou</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preload" href="https://res.cloudinary.com/dr6lvwubh/raw/upload/v1529908256/CompressaPRO-GX.woff2" as="font" type="font/woff2" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Schoolbell&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
@@ -148,41 +147,45 @@
       box-shadow: var(--shadow-soft);
       display: flex;
       align-items: center;
+      justify-content: center;
       padding: 0 clamp(12px, 3vw, 24px);
       gap: 10px;
       z-index: 200;
       color: var(--text-on-dark);
     }
 
-    .nav-back-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
+    #topnav-back.nav-back-btn {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 260;
       width: 40px;
       height: 40px;
       padding: 0;
-      border-radius: 10px;
-      border: 1px solid rgba(240, 235, 224, 0.22);
-      background: rgba(240, 235, 224, 0.08);
-      color: var(--creme);
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(28, 53, 87, 0.75);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       cursor: pointer;
-      transition: background .18s, border-color .18s, color .18s;
+      font-size: 18px;
+      box-sizing: border-box;
+      pointer-events: auto;
+      transition: background .18s, border-color .18s;
     }
 
-    .nav-back-btn:hover {
-      background: rgba(91, 143, 168, 0.25);
-      border-color: rgba(91, 143, 168, 0.55);
-      color: var(--creme);
+    #topnav-back.nav-back-btn:hover {
+      background: rgba(28, 53, 87, 0.9);
+      border-color: rgba(255, 255, 255, 0.35);
+      color: #fff;
     }
 
-
-    @font-face {
-      font-family: 'Compressa VF';
-      src: url('https://res.cloudinary.com/dr6lvwubh/raw/upload/v1529908256/CompressaPRO-GX.woff2') format('woff2');
-      font-weight: 100 900;
-      font-stretch: 5% 200%;
-      font-display: swap;
+    #topnav-back[hidden] {
+      display: none !important;
     }
 
     .topnav-logo {
@@ -196,36 +199,21 @@
       justify-content: center;
     }
 
-    .text-pressure-inner {
-      position: relative;
-      width: 100%;
-      height: 44px;
-      background: transparent;
-    }
-
-    .nav-site-pressure-title {
-      font-family: 'Compressa VF', var(--font-site), cursive;
-      text-transform: uppercase;
-      margin: 0;
+    .site-nav-brand {
+      font-family: var(--font-site);
+      font-size: clamp(1.35rem, 3.8vw, 1.95rem);
+      font-weight: 400;
+      line-height: 1.25;
       text-align: center;
-      user-select: none;
-      white-space: nowrap;
-      font-weight: 100;
-      width: 100%;
+      margin: 0;
       color: var(--text-on-dark);
-      transform-origin: center top;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: min(92vw, 520px);
     }
 
-    .nav-site-pressure-title.flex {
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .nav-site-pressure-title span {
-      display: inline-block;
-    }
-
-    .text-pressure-char--accent {
+    .site-nav-accent {
       color: var(--rouge);
       font-style: italic;
     }
@@ -613,6 +601,127 @@
       background: var(--red-hover);
       transform: translateY(-1px);
     }
+
+    /* ─── Détail fiche (Mes fiches) ─── */
+    #detailView {
+      overflow-y: auto;
+      background: transparent;
+    }
+
+    #detailView::-webkit-scrollbar { width: 4px; }
+    #detailView::-webkit-scrollbar-track { background: transparent; }
+    #detailView::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .detail-card-shell {
+      background: rgba(240, 235, 224, 0.65);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      margin: 0 auto;
+      border: 1px solid rgba(91, 143, 168, 0.28);
+      box-shadow: var(--shadow-card);
+      max-width: var(--max-prose);
+    }
+
+    .detail-head { margin-bottom: 1.5rem; }
+
+    .detail-h1 {
+      font-family: var(--font-site);
+      font-size: 2rem;
+      font-weight: 400;
+      color: var(--marine);
+      margin-bottom: 0.35rem;
+    }
+
+    .detail-period {
+      font-size: 0.9375rem;
+      color: var(--gris-bleu);
+      font-weight: 600;
+    }
+
+    .detail-section {
+      margin-bottom: 1.25rem;
+    }
+
+    .detail-section-title {
+      font-family: var(--font-site);
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: var(--marine);
+      margin-bottom: 0.35rem;
+    }
+
+    .detail-li {
+      font-size: 0.9375rem;
+      color: var(--marine);
+      line-height: 1.55;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(91, 143, 168, 0.15);
+    }
+
+    .detail-li:last-child { border-bottom: none; }
+
+    .detail-empty { color: var(--muted); font-style: italic; font-size: 0.875rem; }
+
+    .detail-notes {
+      margin: 1rem 0 1.25rem;
+      padding: 14px 16px;
+      border-left: 3px solid var(--bleu-mid);
+      background: rgba(240, 235, 224, 0.45);
+      border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+      font-size: 1rem;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .detail-notes .detail-section-title { margin-bottom: 8px; }
+
+    .detail-photo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .detail-photo-cell {
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      aspect-ratio: 1;
+    }
+
+    .detail-photo-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 1.75rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(91, 143, 168, 0.22);
+    }
+
+    .btn-detail-edit {
+      flex: 1;
+      min-width: 140px;
+      padding: 11px 14px;
+      background: var(--marine);
+      color: var(--creme);
+      border: none;
+      border-radius: var(--radius-lg);
+      font-family: var(--font-site);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter .15s;
+    }
+
+    .btn-detail-edit:hover { filter: brightness(1.08); }
 
     /* ══════════════════════════════════════
        ACTION BUTTONS
@@ -1236,6 +1345,12 @@
       margin-bottom: 0;
     }
 
+    .list-download-single {
+      flex: 1 1 100%;
+      width: 100%;
+      text-align: center;
+    }
+
     .btn-export-all {
       flex: 1;
       padding: 11px 12px;
@@ -1277,6 +1392,7 @@
     }
 
     .fiche-card {
+      cursor: pointer;
       border: var(--glass-border);
       border-radius: var(--glass-radius);
       margin-bottom: 16px;
@@ -1285,6 +1401,15 @@
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       box-shadow: var(--shadow-card);
+    }
+
+    .fiche-card:focus-visible {
+      outline: 2px solid var(--bleu-mid);
+      outline-offset: 2px;
+    }
+
+    .fiche-card-actions {
+      cursor: default;
     }
 
     .fiche-card-top {
@@ -1860,7 +1985,6 @@
 
     @media (max-width: 640px) {
       :root { --topnav-h: 52px; --space-section: 1.75rem; }
-      .topnav-logo { display: none; }
       .editor-inner { padding: 20px 0 24px; }
       .editor-profile-wrap { padding-top: 4px; }
       .editor-avatar-ring { width: 128px; height: 128px; }
@@ -1881,17 +2005,18 @@
 </head>
 <body>
 
+<button type="button" id="topnav-back" class="nav-back-btn" onclick="navBarBack()" aria-label="Retour" title="Retour" hidden>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+    <path d="M15 18l-6-6 6-6"/>
+  </svg>
+</button>
+
 <!-- ════════════════════════════════════
      TOP NAVIGATION
 ════════════════════════════════════ -->
 <header id="topnav">
-  <button type="button" id="topnav-back" class="nav-back-btn" onclick="navBarBack()" aria-label="Retour" title="Retour" hidden>
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-      <path d="M15 18l-6-6 6-6"/>
-    </svg>
-  </button>
   <div class="topnav-logo" id="nav-site-title" aria-label="Le travel book de chachou">
-    <div class="text-pressure-inner" id="nav-text-pressure-root" data-text="Le travel book de chachou" data-accent-from="de chachou"></div>
+    <p class="site-nav-brand">Le travel book <span class="site-nav-accent">de chachou</span></p>
   </div>
 </header>
 
@@ -2102,15 +2227,12 @@
           <div class="form-shell">
           <header class="article-hero tab-list-hero">
             <h1 class="ds-h1">Vos carnets sauvegardés</h1>
-            <p class="ds-secondary ds-lead">Retrouvez chaque destination, exportez ou importez vos fiches sans quitter cette page.</p>
+            <p class="ds-secondary ds-lead">Retrouvez chaque destination et téléchargez une sauvegarde JSON de vos carnets.</p>
           </header>
           <div class="article-flow">
           <section class="editor-card editor-card--toolbar">
             <div class="list-header">
-            <button class="btn-export-all" onclick="exportAllJSON()">↓ Exporter tout</button>
-            <button class="btn-import" onclick="document.getElementById('import-file-input').click()">↑ Importer</button>
-            <input type="file" id="import-file-input" accept=".json" style="display:none"
-              onchange="importJSON(this)">
+            <button type="button" class="btn-export-all list-download-single" onclick="downloadMesFichesJSON()">↓ Télécharger mes fiches</button>
           </div>
           </section>
           <div id="fiches-list"></div>
@@ -2146,6 +2268,13 @@
         <button type="button" class="btn-pdf-preview" onclick="exportPDF()">↓&nbsp; PDF</button>
       </div>
       <div id="preview-content"></div>
+    </div>
+  </div>
+
+  <!-- ─── DETAIL VIEW (Mes fiches → lecture seule) ─── -->
+  <div id="detailView" class="view" role="tabpanel">
+    <div class="preview-inner detail-scroll">
+      <div id="detail-content" class="detail-card-shell"></div>
     </div>
   </div>
 

@@ -117,6 +117,8 @@ async function refreshFichesFromSupabase() {
 let fiches = [];
 /** uuid en édition, ou null si nouvelle fiche */
 let editingId = null;
+/** index dans fiches[] pour la vue détail lecture seule */
+let detailFicheIdx = null;
 let currentPhotos = [];
 let currentLat = null;
 let currentLng = null;
@@ -130,8 +132,6 @@ let locDebounceTimer = null;
 // INIT
 // ══════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
-  initNavTextPressure();
-
   // Close location dropdown on outside click
   document.addEventListener('click', e => {
     if (!e.target.closest('.loc-search-wrap')) closeDropdown();
@@ -402,6 +402,7 @@ function _acSetActive(items, idx) {
 // VIEW SWITCHING (top-level: editor ↔ preview)
 // ══════════════════════════════════════
 function switchView(view) {
+  closeDetailPanel();
   const toEditor = view === 'editor';
 
   document.getElementById('editorView').classList.toggle('active', toEditor);
@@ -414,7 +415,7 @@ function switchView(view) {
 
 /** Retour au formulaire depuis « Voir la fiche » — réutilise l’état déjà dans le DOM (même flux que editFiche) */
 function editFromPreview() {
-  switchTab('form');
+  switchTab('form', { skipFormReset: true });
   switchView('editor');
   const sc = document.querySelector('#editorView .editor-scroll');
   if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
@@ -423,7 +424,18 @@ function editFromPreview() {
 // ══════════════════════════════════════
 // TAB SWITCHING (inside editor: form ↔ list)
 // ══════════════════════════════════════
-function switchTab(tab) {
+/**
+ * @param {'form'|'list'} tab
+ * @param {{ skipFormReset?: boolean }} [options]
+ */
+function switchTab(tab, options = {}) {
+  const { skipFormReset = false } = options;
+
+  if (tab === 'form' && !skipFormReset) {
+    if (!confirmAbandonIfEditing()) return;
+    resetFormCore();
+  }
+
   const toForm = tab === 'form';
 
   document.getElementById('tab-form').classList.toggle('active', toForm);
@@ -435,15 +447,29 @@ function switchTab(tab) {
   updateNavBar();
 }
 
-/** Flèche navbar : retour fiche → éditeur, liste → onglet formulaire ; masquée sur accueil (éditeur + Nouvelle fiche). */
+function confirmAbandonIfEditing() {
+  if (editingId == null) return true;
+  return confirm('Abandonner les modifications en cours ?');
+}
+
+/** Accueil = nouvelle fiche seule (pas prévisualisation, pas détail, pas édition d'une fiche existante). */
+function currentPageIsHome() {
+  if (detailFicheIdx != null || document.getElementById('detailView')?.classList.contains('active')) return false;
+  const editorVisible = document.getElementById('editorView')?.classList.contains('active');
+  const formTab = document.getElementById('tab-form')?.classList.contains('active');
+  const previewOn = document.getElementById('previewView')?.classList.contains('active');
+  return editorVisible && formTab && !previewOn && editingId === null;
+}
+
+/** Navbar : pas de retour sur l'accueil uniquement ; sinon sous-page (liste, détail, aperçu, édition). */
 function updateNavBar() {
   const back = document.getElementById('topnav-back');
   if (!back) return;
-  const previewOn = document.getElementById('previewView')?.classList.contains('active');
-  const listOn = document.getElementById('tab-list')?.classList.contains('active');
-  const showBack = previewOn || listOn;
-  if (showBack) back.removeAttribute('hidden');
-  else back.setAttribute('hidden', '');
+  if (currentPageIsHome()) {
+    back.setAttribute('hidden', '');
+    return;
+  }
+  back.removeAttribute('hidden');
 }
 
 function navBarBack() {
@@ -451,7 +477,99 @@ function navBarBack() {
     editFromPreview();
     return;
   }
-  switchTab('form');
+  if (detailFicheIdx != null || document.getElementById('detailView')?.classList.contains('active')) {
+    closeDetailPanel({ goList: true });
+    return;
+  }
+  /* Mes fiches → accueil (nouvelle fiche) ; confirmAbandon dans switchTab */
+  if (document.getElementById('tab-list')?.classList.contains('active')) {
+    switchTab('form');
+    return;
+  }
+  /* Formulaire : modification d'une fiche existante → Mes fiches */
+  if (document.getElementById('tab-form')?.classList.contains('active') && editingId !== null) {
+    if (!confirmAbandonIfEditing()) return;
+    resetFormCore();
+    switchTab('list', { skipFormReset: true });
+    return;
+  }
+}
+
+function closeDetailPanel(opts = {}) {
+  detailFicheIdx = null;
+  const dv = document.getElementById('detailView');
+  const ev = document.getElementById('editorView');
+  if (dv) dv.classList.remove('active');
+  if (ev) ev.classList.add('active');
+  if (opts.goList && document.getElementById('tab-list')) switchTab('list', { skipFormReset: true });
+  updateNavBar();
+}
+
+function renderFicheDetail(idx) {
+  const el = document.getElementById('detail-content');
+  if (!el) return;
+  const f = fiches[idx];
+  if (!f) {
+    el.innerHTML = '<p>Fiche introuvable.</p>';
+    return;
+  }
+
+  /** @param {string} label */
+  const listBlock = (label, arr) => {
+    const items = coerceJsonArray(arr).filter(Boolean);
+    let html = `<div class="detail-section"><div class="detail-section-title">${escHtml(label)}</div>`;
+    if (items.length === 0) html += `<p class="detail-empty">—</p>`;
+    else items.forEach(t => {
+      html += `<div class="detail-li">${escHtml(t)}</div>`;
+    });
+    html += '</div>';
+    return html;
+  };
+
+  let pics = '';
+  const photos = Array.isArray(f.photos) ? f.photos : [];
+  if (photos.length > 0) {
+    pics = `<div class="detail-section"><div class="detail-section-title">Photos</div><div class="detail-photo-grid">`;
+    photos.forEach(u => {
+      pics += `<div class="detail-photo-cell"><img src="${escHtml(u)}" alt="" loading="lazy"></div>`;
+    });
+    pics += '</div></div>';
+  }
+
+  let notes = '';
+  if (f.notes && String(f.notes).trim()) {
+    notes = `<div class="detail-notes"><div class="detail-section-title">Notes</div><div>${escHtml(f.notes).replace(/\n/g, '<br>')}</div></div>`;
+  }
+
+  el.innerHTML = `
+    <header class="detail-head">
+      <h1 class="detail-h1">${escHtml(f.dest || 'Sans titre')}</h1>
+      <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
+    </header>
+    ${listBlock('Hébergement', f.hotels)}
+    ${listBlock('Restaurants', f.restaurants)}
+    ${listBlock('Shopping & boutiques', f.boutiques)}
+    ${listBlock('Visites & lieux', f.lieux)}
+    ${notes}
+    ${pics}
+    <div class="detail-actions" onclick="event.stopPropagation()">
+      <button type="button" class="btn-detail-edit" onclick="event.stopPropagation(); editFiche(${idx});">Modifier</button>
+      <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
+    </div>`;
+}
+
+function openFicheDetail(idx) {
+  const f = fiches[idx];
+  if (!f) return;
+  detailFicheIdx = idx;
+  renderFicheDetail(idx);
+  const dv = document.getElementById('detailView');
+  const ev = document.getElementById('editorView');
+  if (ev) ev.classList.remove('active');
+  if (dv) dv.classList.add('active');
+  const sc = document.querySelector('#detailView .preview-inner');
+  if (sc) sc.scrollTo({ top: 0 });
+  updateNavBar();
 }
 
 // ══════════════════════════════════════
@@ -1168,7 +1286,11 @@ async function saveFiche() {
   }
 }
 
-function newFiche() {
+/**
+ * Vide le formulaire (destination, cartes, listes avec une ligne vide, notes, photos, édition).
+ * Ne change pas les onglets ni la vue prévisualisation.
+ */
+function resetFormCore() {
   editingId = null;
   currentDest = '';
   currentDestShort = '';
@@ -1184,15 +1306,30 @@ function newFiche() {
   document.getElementById('sel-annee').value = '';
   document.getElementById('notes-textarea').value = '';
 
+  closeDropdown();
+
   initLists();
+  ['hotels', 'restaurants', 'boutiques', 'lieux'].forEach(k => _accordionUpdateBadge(k));
+
   renderPhotoGrid();
 
   const banner = document.getElementById('shared-banner');
   if (banner) banner.remove();
 
-  switchTab('form');
-  switchView('editor');
+  document.querySelectorAll('#lists-accordion .accordion-item').forEach(ai => _accordionClose(ai));
+  const firstAccItem = document.querySelector('#lists-accordion .accordion-item');
+  if (firstAccItem) _accordionOpen(firstAccItem);
+
   updatePreview();
+}
+
+function newFiche() {
+  if (!confirmAbandonIfEditing()) return;
+  resetFormCore();
+  switchTab('form', { skipFormReset: true });
+  switchView('editor');
+  const sc = document.querySelector('#editorView .editor-scroll');
+  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function loadFicheIntoForm(fiche) {
@@ -1245,7 +1382,8 @@ function renderFicheList() {
   }
 
   container.innerHTML = fiches.map((f, i) => `
-    <div class="fiche-card">
+    <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
       <div class="fiche-card-top"></div>
       <div class="fiche-card-body">
         <div class="fiche-card-dest">${escHtml(f.dest || 'Destination inconnue')}</div>
@@ -1268,11 +1406,11 @@ function renderFicheList() {
             <span class="fiche-stat-label">Shopping</span>
           </div>
         </div>
-        <div class="fiche-card-actions">
-          <button class="fiche-action-btn" onclick="editFiche(${i})">Modifier</button>
-          <button class="fiche-action-btn" onclick="shareFiche(${i})">Partager</button>
-          <button class="fiche-action-btn pdf" onclick="exportFichePDF(${i})">PDF</button>
-          <button class="fiche-action-btn delete" onclick="deleteFiche(${i})">Supprimer</button>
+        <div class="fiche-card-actions" onclick="event.stopPropagation()">
+          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); editFiche(${i})">Modifier</button>
+          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); shareFiche(${i})">Partager</button>
+          <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${i})">PDF</button>
+          <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
       </div>
     </div>`).join('');
@@ -1281,10 +1419,13 @@ function renderFicheList() {
 function editFiche(i) {
   const f = fiches[i];
   if (!f?.id) { toast('Impossible d’ouvrir cette fiche'); return; }
+  closeDetailPanel();
   editingId = f.id;
   loadFicheIntoForm(f);
-  switchTab('form');
+  switchTab('form', { skipFormReset: true });
   switchView('editor');
+  const sc = document.querySelector('#editorView .editor-scroll');
+  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function deleteFiche(i) {
@@ -1295,8 +1436,13 @@ async function deleteFiche(i) {
     const { error } = await supabase.from('fiches').delete().eq('id', f.id);
     if (error) throw error;
     await refreshFichesFromSupabase();
-    renderFicheList();
+    if (detailFicheIdx === i) {
+      closeDetailPanel({ goList: true });
+    } else {
+      renderFicheList();
+    }
     toast('Fiche supprimée');
+    updateNavBar();
   } catch (e) {
     console.error(e);
     toast('Erreur lors de la suppression');
@@ -1363,6 +1509,11 @@ function exportAllJSON() {
   const a = document.createElement('a');
   a.href = url; a.download = 'travel-book-chachou-backup.json'; a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Bouton unique « Télécharger mes fiches » — même logique que exportAllJSON */
+function downloadMesFichesJSON() {
+  exportAllJSON();
 }
 
 function importJSON(input) {
@@ -1635,155 +1786,9 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// ══════════════════════════════════════
-// TextPressure (port React Bits — vanilla, navbar uniquement)
-// Inspiré de https://codepen.io/JuanFuentes/full/rgXKGQ
-// ══════════════════════════════════════
-function _tpDist(a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function _tpGetAttr(distance, maxDist, minVal, maxVal) {
-  const val = maxVal - Math.abs((maxVal * distance) / maxDist);
-  return Math.max(minVal, val + minVal);
-}
-
-function _tpDebounce(func, delay) {
-  let timeoutId;
-  return (...args) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => func(...args), delay);
-  };
-}
-
-function initNavTextPressure() {
-  const container = document.getElementById('nav-text-pressure-root');
-  if (!container) return;
-
-  const fullText = container.dataset.text || 'Le travel book de chachou';
-  const accentNeedle = container.dataset.accentFrom || 'de chachou';
-  const accentStart = fullText.indexOf(accentNeedle);
-  const accentFrom = accentStart >= 0 ? accentStart : fullText.length;
-
-  const width = true;
-  const weight = true;
-  const italic = true;
-  const alpha = false;
-  const flex = true;
-  const scale = false;
-  const minFontSize = 23;
-  const maxFontSize = 34;
-
-  const chars = fullText.split('');
-  const title = document.createElement('p');
-  title.className = `nav-site-pressure-title text-pressure-title${flex ? ' flex' : ''}`;
-  title.setAttribute('role', 'presentation');
-
-  const spans = [];
-  chars.forEach((ch, i) => {
-    const span = document.createElement('span');
-    span.textContent = ch;
-    span.dataset.char = ch;
-    if (i >= accentFrom) span.classList.add('text-pressure-char--accent');
-    title.appendChild(span);
-    spans.push(span);
-  });
-  container.innerHTML = '';
-  container.appendChild(title);
-
-  const mouseRef = { x: 0, y: 0 };
-  const cursorRef = { x: 0, y: 0 };
-
-  let fontSizeState = minFontSize;
-  let scaleY = 1;
-  let lineHeight = 1;
-
-  function setSize() {
-    const { width: cw, height: ch } = container.getBoundingClientRect();
-    let newFs = cw / Math.max(chars.length / 2, 1);
-    newFs = Math.max(minFontSize, Math.min(maxFontSize, newFs));
-    fontSizeState = newFs;
-    scaleY = 1;
-    lineHeight = 1;
-    title.style.fontSize = fontSizeState + 'px';
-    title.style.transform = `scale(1, ${scaleY})`;
-    title.style.lineHeight = String(lineHeight);
-
-    requestAnimationFrame(() => {
-      if (!scale || !title.getBoundingClientRect().height) return;
-      const tr = title.getBoundingClientRect();
-      const yRatio = ch / tr.height;
-      scaleY = yRatio;
-      lineHeight = yRatio;
-      title.style.transform = `scale(1, ${scaleY})`;
-      title.style.lineHeight = String(lineHeight);
-    });
-  }
-
-  function onMouseMove(e) {
-    cursorRef.x = e.clientX;
-    cursorRef.y = e.clientY;
-  }
-  function onTouchMove(e) {
-    const t = e.touches[0];
-    if (t) {
-      cursorRef.x = t.clientX;
-      cursorRef.y = t.clientY;
-    }
-  }
-
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('touchmove', onTouchMove, { passive: true });
-
-  const debouncedSetSize = _tpDebounce(setSize, 100);
-  setSize();
-  window.addEventListener('resize', debouncedSetSize);
-
-  const rect0 = container.getBoundingClientRect();
-  mouseRef.x = rect0.left + rect0.width / 2;
-  mouseRef.y = rect0.top + rect0.height / 2;
-  cursorRef.x = mouseRef.x;
-  cursorRef.y = mouseRef.y;
-
-  let rafId;
-  function animate() {
-    mouseRef.x += (cursorRef.x - mouseRef.x) / 15;
-    mouseRef.y += (cursorRef.y - mouseRef.y) / 15;
-
-    const titleRect = title.getBoundingClientRect();
-    const maxDist = Math.max(titleRect.width / 2, 48);
-
-    spans.forEach((span) => {
-      const rect = span.getBoundingClientRect();
-      const charCenter = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      const d = _tpDist(mouseRef, charCenter);
-
-      const wdth = width ? Math.floor(_tpGetAttr(d, maxDist, 5, 200)) : 100;
-      const wght = weight ? Math.floor(_tpGetAttr(d, maxDist, 100, 900)) : 400;
-      const italVal = italic ? _tpGetAttr(d, maxDist, 0, 1).toFixed(2) : '0';
-      const alphaVal = alpha ? _tpGetAttr(d, maxDist, 0, 1).toFixed(2) : '1';
-
-      const v = `'wght' ${wght}, 'wdth' ${wdth}, 'ital' ${italVal}`;
-      if (span.style.fontVariationSettings !== v) span.style.fontVariationSettings = v;
-      if (alpha && span.style.opacity !== alphaVal) span.style.opacity = alphaVal;
-    });
-
-    rafId = requestAnimationFrame(animate);
-  }
-  animate();
-
-  window.addEventListener('beforeunload', () => {
-    cancelAnimationFrame(rafId);
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('touchmove', onTouchMove);
-    window.removeEventListener('resize', debouncedSetSize);
-  });
-}
-
 /** Attributs onclick du HTML — les modules ES n'exposent pas de globales */
 Object.assign(window, {
+  openFicheDetail,
   switchView,
   editFromPreview,
   switchTab,
@@ -1799,6 +1804,7 @@ Object.assign(window, {
   clearLocation,
   addItem,
   exportAllJSON,
+  downloadMesFichesJSON,
   importJSON,
   exportPDF,
   saveFiche,
