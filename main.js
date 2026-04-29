@@ -505,6 +505,55 @@ function closeDetailPanel(opts = {}) {
   updateNavBar();
 }
 
+/** Incrémenté à chaque ouverture de détail pour ignorer les réponses drapeau obsolètes */
+let _detailFlagGen = 0;
+
+/**
+ * Drapeau 32×24 au-dessus du titre : code ISO si présent sur la fiche, sinon restcountries + flagcdn.
+ * Échec silencieux.
+ * @param {object} f
+ */
+function scheduleDetailCountryFlag(f) {
+  const gen = ++_detailFlagGen;
+  const wrap = document.getElementById('detail-flag-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const ccQuick = f.countryCode && String(f.countryCode).trim();
+  if (/^[a-z]{2}$/i.test(ccQuick)) {
+    const code = ccQuick.toLowerCase();
+    wrap.innerHTML = `<img src="https://flagcdn.com/32x24/${code}.png" width="32" height="24" alt="" loading="lazy">`;
+    return;
+  }
+
+  const dest = f.dest || '';
+  const lc = dest.lastIndexOf(',');
+  const countryName = lc >= 0 ? dest.slice(lc + 1).trim() : '';
+  if (!countryName) return;
+
+  const url = `https://restcountries.com/v3.1/name/${encodeURIComponent(countryName)}?fields=cca2`;
+
+  (async () => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    let code = null;
+    try {
+      const r = await fetch(url, { signal: ctrl.signal });
+      if (!r.ok) return;
+      const data = await r.json();
+      const hit = Array.isArray(data) && data[0];
+      const cca2 = hit?.cca2;
+      if (cca2 && /^[a-z]{2}$/i.test(String(cca2))) code = String(cca2).toLowerCase();
+    } catch {
+      /* silence */
+    } finally {
+      clearTimeout(t);
+    }
+    if (gen !== _detailFlagGen || !wrap.isConnected || !code) return;
+    wrap.innerHTML = `<img src="https://flagcdn.com/32x24/${code}.png" width="32" height="24" alt="" loading="lazy">`;
+  })();
+}
+
 function renderFicheDetail(idx) {
   const el = document.getElementById('detail-content');
   if (!el) return;
@@ -543,6 +592,7 @@ function renderFicheDetail(idx) {
 
   el.innerHTML = `
     <header class="detail-head">
+      <div class="detail-flag-wrap" id="detail-flag-wrap" aria-hidden="true"></div>
       <h1 class="detail-h1">${escHtml(f.dest || 'Sans titre')}</h1>
       <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
     </header>
@@ -554,8 +604,10 @@ function renderFicheDetail(idx) {
     ${pics}
     <div class="detail-actions" onclick="event.stopPropagation()">
       <button type="button" class="btn-detail-edit" onclick="event.stopPropagation(); editFiche(${idx});">Modifier</button>
-      <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
+      <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
     </div>`;
+
+  scheduleDetailCountryFlag(f);
 }
 
 function openFicheDetail(idx) {
@@ -1410,6 +1462,7 @@ function renderFicheList() {
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); editFiche(${i})">Modifier</button>
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); shareFiche(${i})">Partager</button>
           <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${i})">PDF</button>
+          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); exportSingleFicheJSON(${i})">↓ JSON</button>
           <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
       </div>
@@ -1511,9 +1564,28 @@ function exportAllJSON() {
   URL.revokeObjectURL(url);
 }
 
-/** Bouton unique « Télécharger mes fiches » — même logique que exportAllJSON */
-function downloadMesFichesJSON() {
-  exportAllJSON();
+/** Export JSON d’une seule fiche (depuis la liste). */
+function exportSingleFicheJSON(idx) {
+  const f = fiches[idx];
+  if (!f) {
+    toast('Fiche introuvable');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(f, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const raw = (f.dest || 'fiche')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s-]/g, ' ')
+    .trim()
+    .slice(0, 48)
+    .replace(/\s+/g, '-')
+    .toLowerCase();
+  a.href = url;
+  a.download = `${raw || 'fiche'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function importJSON(input) {
@@ -1804,7 +1876,7 @@ Object.assign(window, {
   clearLocation,
   addItem,
   exportAllJSON,
-  downloadMesFichesJSON,
+  exportSingleFicheJSON,
   importJSON,
   exportPDF,
   saveFiche,
