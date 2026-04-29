@@ -61,7 +61,7 @@
       --radius-2xl: 12px;
       --max-prose: 48rem;
       --space-section: 2.5rem;
-      --topnav-h: 60px;
+      --topnav-h: 52px;
       --subnav-h: 48px;
       --actions-h: 96px;
       --font-site: "Schoolbell", cursive;
@@ -136,31 +136,28 @@
     ══════════════════════════════════════ */
     #topnav {
       flex-shrink: 0;
-      min-height: var(--topnav-h);
+      height: 52px;
+      box-sizing: border-box;
       background: var(--surface-nav);
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       border-radius: var(--glass-radius);
       border: 1px solid rgba(240, 235, 224, 0.12);
       margin: 8px clamp(12px, 3vw, 24px) 0;
-      box-sizing: border-box;
       box-shadow: var(--shadow-soft);
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 0 clamp(12px, 3vw, 24px);
+      padding: 0 16px;
       gap: 10px;
       z-index: 200;
       color: var(--text-on-dark);
     }
 
     #topnav-back.nav-back-btn {
-      position: fixed;
-      top: 16px;
-      left: 16px;
-      z-index: 260;
-      width: 40px;
-      height: 40px;
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      margin: 0;
       padding: 0;
       border-radius: 50%;
       border: 1px solid rgba(255, 255, 255, 0.2);
@@ -172,9 +169,8 @@
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
       cursor: pointer;
-      font-size: 18px;
+      font-size: 16px;
       box-sizing: border-box;
-      pointer-events: auto;
       transition: background .18s, border-color .18s;
     }
 
@@ -191,12 +187,14 @@
     .topnav-logo {
       flex: 1 1 auto;
       min-width: 0;
-      max-width: min(76vw, 560px);
-      margin-inline: auto;
       line-height: 1;
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    #topnav:has(#topnav-back:not([hidden])) .topnav-logo {
+      padding-left: 6px;
     }
 
     .site-nav-brand {
@@ -2034,16 +2032,15 @@
 </head>
 <body>
 
-<button type="button" id="topnav-back" class="nav-back-btn" onclick="navBarBack()" aria-label="Retour" title="Retour" hidden>
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-    <path d="M15 18l-6-6 6-6"/>
-  </svg>
-</button>
-
 <!-- ════════════════════════════════════
      TOP NAVIGATION
 ════════════════════════════════════ -->
 <header id="topnav">
+  <button type="button" id="topnav-back" class="nav-back-btn" onclick="navBarBack()" aria-label="Retour" title="Retour" hidden>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+  </button>
   <div class="topnav-logo" id="nav-site-title" aria-label="Le travel book de chachou">
     <p class="site-nav-brand">Le travel book <span class="site-nav-accent">de chachou</span></p>
   </div>
