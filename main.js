@@ -119,6 +119,12 @@ let fiches = [];
 let editingId = null;
 /** index dans fiches[] pour la vue détail lecture seule */
 let detailFicheIdx = null;
+/** id Supabase de la fiche ouverte en plein écran — null si aucune ; préféré à l’index (réordonnancement) */
+let detailFicheId = null;
+
+let _detailFlagGen = 0;
+let _previewCoverFlagGen = 0;
+let _ficheListFlagGen = 0;
 let currentPhotos = [];
 let currentLat = null;
 let currentLng = null;
@@ -162,6 +168,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (firstAccItem) _accordionOpen(firstAccItem);
   updatePreview();
   renderFicheList();
+  updateNavBar();
+});
+
+/** BFCache retour/avant : réinitialiser le détail — évite une fiche « collée » (ex. Bordeaux partout). */
+window.addEventListener('pageshow', e => {
+  if (!e.persisted) return;
+  clearDetailSelectionAndDom();
+  hideDetailOverlayIfVisible();
   updateNavBar();
 });
 
@@ -424,12 +438,30 @@ function editFromPreview() {
 // ══════════════════════════════════════
 // TAB SWITCHING (inside editor: form ↔ list)
 // ══════════════════════════════════════
+function clearDetailSelectionAndDom() {
+  detailFicheIdx = null;
+  detailFicheId = null;
+  const dc = document.getElementById('detail-content');
+  if (dc) dc.innerHTML = '';
+  _detailFlagGen++;
+}
+
+/** Ferme l’overlay détail sans toucher aux onglets (editor déjà visible). */
+function hideDetailOverlayIfVisible() {
+  const dv = document.getElementById('detailView');
+  const ev = document.getElementById('editorView');
+  if (dv?.classList.contains('active')) {
+    dv.classList.remove('active');
+    ev?.classList.add('active');
+  }
+}
+
 /**
  * @param {'form'|'list'} tab
- * @param {{ skipFormReset?: boolean }} [options]
+ * @param {{ skipFormReset?: boolean, skipDetailReset?: boolean }} [options]
  */
 function switchTab(tab, options = {}) {
-  const { skipFormReset = false } = options;
+  const { skipFormReset = false, skipDetailReset = false } = options;
 
   if (tab === 'form' && !skipFormReset) {
     if (!confirmAbandonIfEditing()) return;
@@ -437,6 +469,11 @@ function switchTab(tab, options = {}) {
   }
 
   const toForm = tab === 'form';
+
+  if (!toForm && !skipDetailReset) {
+    clearDetailSelectionAndDom();
+    hideDetailOverlayIfVisible();
+  }
 
   const tf = document.getElementById('tab-form');
   const tl = document.getElementById('tab-list');
@@ -462,7 +499,7 @@ function confirmAbandonIfEditing() {
 
 /** Accueil = nouvelle fiche seule (pas prévisualisation, pas détail, pas édition d'une fiche existante). */
 function currentPageIsHome() {
-  if (detailFicheIdx != null || document.getElementById('detailView')?.classList.contains('active')) return false;
+  if (detailFicheIdx != null || detailFicheId != null || document.getElementById('detailView')?.classList.contains('active')) return false;
   const editorVisible = document.getElementById('editorView')?.classList.contains('active');
   const formTab = document.getElementById('tab-form')?.classList.contains('active');
   const previewOn = document.getElementById('previewView')?.classList.contains('active');
@@ -485,7 +522,7 @@ function navBarBack() {
     editFromPreview();
     return;
   }
-  if (detailFicheIdx != null || document.getElementById('detailView')?.classList.contains('active')) {
+  if (detailFicheIdx != null || detailFicheId != null || document.getElementById('detailView')?.classList.contains('active')) {
     closeDetailPanel({ goList: true });
     return;
   }
@@ -504,21 +541,15 @@ function navBarBack() {
 }
 
 function closeDetailPanel(opts = {}) {
-  detailFicheIdx = null;
+  clearDetailSelectionAndDom();
   const dv = document.getElementById('detailView');
   const ev = document.getElementById('editorView');
   if (dv) dv.classList.remove('active');
   if (ev) ev.classList.add('active');
-  if (opts.goList && document.getElementById('tab-list')) switchTab('list', { skipFormReset: true });
+  if (opts.goList && document.getElementById('tab-list'))
+    switchTab('list', { skipFormReset: true, skipDetailReset: true });
   updateNavBar();
 }
-
-/** Incrémenté à chaque ouverture de détail pour ignorer les réponses drapeau obsolètes */
-let _detailFlagGen = 0;
-/** Idem pour l’aperçu « Voir la fiche » */
-let _previewCoverFlagGen = 0;
-/** Liste « Mes fiches » — ignore les résultats d’un rendu précédent */
-let _ficheListFlagGen = 0;
 
 /**
  * Drapeau : code ISO sauvegardé ou pays (extractCountry / restcountries translation) → circle-flags SVG.
@@ -552,6 +583,7 @@ function renderFicheDetail(idx) {
     el.innerHTML = '<p>Fiche introuvable.</p>';
     return;
   }
+  if (detailFicheId != null && f.id && String(f.id) !== String(detailFicheId)) return;
 
   /** @param {string} label */
   const listBlock = (label, arr) => {
@@ -604,6 +636,7 @@ function openFicheDetail(idx) {
   const f = fiches[idx];
   if (!f) return;
   detailFicheIdx = idx;
+  detailFicheId = f.id != null ? String(f.id) : null;
   renderFicheDetail(idx);
   const dv = document.getElementById('detailView');
   const ev = document.getElementById('editorView');
@@ -1500,7 +1533,7 @@ async function scheduleFicheListFlags(renderGen) {
       if (renderGen !== _ficheListFlagGen || !slot.isConnected || !url) return;
       slot.removeAttribute('aria-hidden');
       slot.innerHTML =
-        `<img src="${escHtml(url)}" alt="" width="56" height="56" loading="lazy" decoding="async" class="fiche-flag-img" referrerpolicy="no-referrer">`;
+        `<img src="${escHtml(url)}" alt="" width="32" height="32" loading="lazy" decoding="async" class="fiche-flag-img" referrerpolicy="no-referrer">`;
     })
   );
 }
@@ -1521,9 +1554,11 @@ function renderFicheList() {
   container.innerHTML = fiches.map((f, i) => `
     <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
-      <div class="fiche-card-flag-slot" data-fiche-idx="${i}" aria-hidden="true"></div>
       <div class="fiche-card-body">
-        <div class="fiche-card-dest">${escHtml(f.dest || 'Destination inconnue')}</div>
+        <div class="fiche-card-title-row">
+          <div class="fiche-card-flag-slot" data-fiche-idx="${i}" aria-hidden="true"></div>
+          <div class="fiche-card-dest">${escHtml(f.dest || 'Destination inconnue')}</div>
+        </div>
         <div class="fiche-card-meta">${escHtml([f.mois, f.annee].filter(Boolean).join(' · '))}</div>
         <div class="fiche-card-stats">
           <div class="fiche-stat">
@@ -1574,7 +1609,10 @@ async function deleteFiche(i) {
     const { error } = await supabase.from('fiches').delete().eq('id', f.id);
     if (error) throw error;
     await refreshFichesFromSupabase();
-    if (detailFicheIdx === i) {
+    const openSame =
+      (f.id != null && detailFicheId != null && String(f.id) === String(detailFicheId)) ||
+      detailFicheIdx === i;
+    if (openSame) {
       closeDetailPanel({ goList: true });
     } else {
       renderFicheList();

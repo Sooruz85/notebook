@@ -1458,24 +1458,48 @@
       cursor: default;
     }
 
+    .fiche-card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 2px;
+    }
+
     .fiche-card-flag-slot {
-      padding: 10px 0 0;
+      flex-shrink: 0;
+      align-self: center;
+      padding: 0;
+      margin: 0;
+      line-height: 0;
     }
 
     .fiche-card-flag-slot:empty {
       display: none;
-      padding: 0;
+      width: 0;
+      min-width: 0;
       margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .fiche-flag-img {
+      width: 32px;
+      height: 32px;
+      display: block;
+      flex-shrink: 0;
+      object-fit: contain;
     }
 
     .fiche-card-body { padding: 14px 16px; }
 
     .fiche-card-dest {
+      flex: 1;
+      min-width: 0;
       font-family: var(--font-site);
       font-size: 20px;
       font-weight: 400;
       color: var(--ink);
-      margin-bottom: 2px;
+      margin-bottom: 0;
     }
 
     .fiche-card-meta { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
