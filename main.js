@@ -623,9 +623,16 @@ function openFicheDetail(idx) {
 // ══════════════════════════════════════
 function toast(msg) {
   const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
+  if (!el) return;
+  const text = msg == null ? '' : String(msg).trim();
   clearTimeout(el._timer);
+  if (!text) {
+    el.textContent = '';
+    el.classList.remove('show');
+    return;
+  }
+  el.textContent = text;
+  el.classList.add('show');
   el._timer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
