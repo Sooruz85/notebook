@@ -683,12 +683,20 @@ function getActiveSharePayload() {
 function openShareMenu(ctx) {
   _shareContext = ctx || null;
   const m = document.getElementById('share-modal');
-  const nativeBtn = document.getElementById('btn-share-native');
+  const list = m?.querySelector('.share-modal-list');
+  document.getElementById('btn-share-native')?.remove();
   if (m) {
     m.classList.add('is-open');
     m.setAttribute('aria-hidden', 'false');
-    if (nativeBtn && navigator.share) nativeBtn.style.display = '';
-    else if (nativeBtn) nativeBtn.style.display = 'none';
+    if (list && typeof navigator.share === 'function') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'btn-share-native';
+      btn.className = 'share-option-btn share-option-native';
+      btn.onclick = shareNative;
+      btn.innerHTML = `<svg class="share-opt-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>Partager…<span class="share-option-meta">Menu système (mobile)</span></span>`;
+      list.insertBefore(btn, list.firstChild);
+    }
   }
   document.body.style.overflow = 'hidden';
   document.querySelectorAll('.share-trigger[aria-haspopup="dialog"]').forEach(btn => {
@@ -697,6 +705,7 @@ function openShareMenu(ctx) {
 }
 
 function closeShareMenu() {
+  document.getElementById('btn-share-native')?.remove();
   const m = document.getElementById('share-modal');
   if (m) {
     m.classList.remove('is-open');
