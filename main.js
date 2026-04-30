@@ -464,7 +464,7 @@ function switchTab(tab, options = {}) {
   const { skipFormReset = false, skipDetailReset = false } = options;
 
   if (tab === 'form' && !skipFormReset) {
-    if (!confirmAbandonIfEditing()) return;
+    if (!confirmAbandonIfEditing()) return false;
     resetFormCore();
   }
 
@@ -490,6 +490,7 @@ function switchTab(tab, options = {}) {
 
   if (!toForm) renderFicheList();
   updateNavBar();
+  return true;
 }
 
 function confirmAbandonIfEditing() {
@@ -515,6 +516,16 @@ function updateNavBar() {
     return;
   }
   back.removeAttribute('hidden');
+}
+
+/** Clic sur la barre du titre → accueil (nouvelle fiche, formulaire réinitialisé selon confirmations). */
+function navSiteTitleGoHome(ev) {
+  if (ev?.target?.closest?.('#topnav-back')) return;
+  closeShareMenu();
+  if (!switchTab('form', { skipFormReset: false })) return;
+  switchView('editor');
+  const sc = document.querySelector('#editorView .editor-scroll');
+  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function navBarBack() {
@@ -1551,7 +1562,9 @@ function renderFicheList() {
   }
 
   const gen = ++_ficheListFlagGen;
-  container.innerHTML = fiches.map((f, i) => `
+  container.innerHTML = fiches.map((f, i) => {
+    if (!f) return '';
+    return `
     <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
       <div class="fiche-card-body">
@@ -1585,7 +1598,8 @@ function renderFicheList() {
           <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   queueMicrotask(() => void scheduleFicheListFlags(gen));
 }
 
@@ -1960,6 +1974,7 @@ function escHtml(str) {
 
 /** Attributs onclick du HTML — les modules ES n'exposent pas de globales */
 Object.assign(window, {
+  navSiteTitleGoHome,
   openFicheDetail,
   switchView,
   editFromPreview,
