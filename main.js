@@ -438,8 +438,16 @@ function switchTab(tab, options = {}) {
 
   const toForm = tab === 'form';
 
-  document.getElementById('tab-form').classList.toggle('active', toForm);
-  document.getElementById('tab-list').classList.toggle('active', !toForm);
+  const tf = document.getElementById('tab-form');
+  const tl = document.getElementById('tab-list');
+  if (tf) {
+    tf.classList.toggle('active', toForm);
+    tf.toggleAttribute('hidden', !toForm);
+  }
+  if (tl) {
+    tl.classList.toggle('active', !toForm);
+    tl.toggleAttribute('hidden', toForm);
+  }
   document.getElementById('tab-form-btn').classList.toggle('active', toForm);
   document.getElementById('tab-list-btn').classList.toggle('active', !toForm);
 
@@ -507,10 +515,14 @@ function closeDetailPanel(opts = {}) {
 
 /** Incrémenté à chaque ouverture de détail pour ignorer les réponses drapeau obsolètes */
 let _detailFlagGen = 0;
+/** Idem pour l’aperçu « Voir la fiche » */
+let _previewCoverFlagGen = 0;
+/** Liste « Mes fiches » — ignore les résultats d’un rendu précédent */
+let _ficheListFlagGen = 0;
 
 /**
- * Drapeau : nom du pays après la dernière virgule dans `dest` → restcountries translation → cca2 → flagcdn w80.
- * Échec silencieux (cercle masqué si pas de pays ou API vide / erreur).
+ * Drapeau : code ISO sauvegardé ou pays (extractCountry / restcountries translation) → circle-flags SVG.
+ * Échec silencieux (emplacement vide).
  * @param {object} f
  */
 function scheduleDetailCountryFlag(f) {
@@ -519,32 +531,16 @@ function scheduleDetailCountryFlag(f) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  const dest = f.dest || '';
-  const lc = dest.lastIndexOf(',');
-  const countryName = lc >= 0 ? dest.slice(lc + 1).trim() : '';
-  if (!countryName) return;
-
-  const apiUrl = `https://restcountries.com/v3.1/translation/${encodeURIComponent(countryName)}?fields=cca2`;
-
   (async () => {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 10000);
-    let code = null;
+    let url = null;
     try {
-      const r = await fetch(apiUrl, { signal: ctrl.signal });
-      if (!r.ok) return;
-      const data = await r.json();
-      const hit = Array.isArray(data) && data[0];
-      const cca2 = hit?.cca2;
-      if (cca2 && /^[a-z]{2}$/i.test(String(cca2))) code = String(cca2).toLowerCase();
+      url = await resolveCircleFlagSvgUrl(f.dest || '', f.countryCode || '');
     } catch {
       /* silence */
-    } finally {
-      clearTimeout(t);
     }
-    if (gen !== _detailFlagGen || !wrap.isConnected || !code) return;
-    const src = `https://flagcdn.com/w80/${code}.png`;
-    wrap.innerHTML = `<img class="detail-flag-img" src="${src}" alt="" loading="lazy">`;
+    if (gen !== _detailFlagGen || !wrap.isConnected || !url) return;
+    wrap.innerHTML =
+      `<img class="detail-flag-img" src="${escHtml(url)}" alt="" width="80" height="80" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
   })();
 }
 
@@ -586,7 +582,7 @@ function renderFicheDetail(idx) {
 
   el.innerHTML = `
     <header class="detail-head">
-      <div id="detail-flag-wrap" class="detail-flag-ring" aria-hidden="true"></div>
+      <div id="detail-flag-wrap" class="detail-flag-wrap" aria-hidden="true"></div>
       <h1 class="detail-h1">${escHtml(f.dest || 'Sans titre')}</h1>
       <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
     </header>
@@ -886,6 +882,45 @@ function isoFromCountryName(name) {
 
 }
 
+/** SVG ronds HatScripts circle-flags (jsDelivr) — suffixe fichier = ISO alpha-2 minuscules */
+const CIRCLE_FLAGS_BASE = 'https://cdn.jsdelivr.net/gh/HatScripts/circle-flags@2.7.0/flags';
+
+/**
+ * Pays = dernière partie après virgules (ex. « Istanbul, Turquie » → « Turquie » ; sans virgule = chaîne entière).
+ * @param {string} dest
+ */
+function extractCountry(dest) {
+  if (dest == null || String(dest).trim() === '') return '';
+  const parts = String(dest).split(',');
+  return parts[parts.length - 1].trim();
+}
+
+async function circleFlagSvgUrlFromCountryName(countryName) {
+  const name = String(countryName || '').trim();
+  if (!name) return null;
+  const apiUrl = `https://restcountries.com/v3.1/translation/${encodeURIComponent(name)}?fields=cca2`;
+  try {
+    const r = await fetch(apiUrl);
+    if (!r.ok) return null;
+    const data = await r.json();
+    const hit = Array.isArray(data) && data[0];
+    const cca2 = hit?.cca2;
+    if (!cca2 || !/^[a-z]{2}$/i.test(String(cca2))) return null;
+    return `${CIRCLE_FLAGS_BASE}/${String(cca2).toLowerCase()}.svg`;
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<string|null>} URL .svg circle-flags */
+async function resolveCircleFlagSvgUrl(dest, storedCca2) {
+  const raw = typeof storedCca2 === 'string' ? storedCca2.trim() : '';
+  if (/^[a-z]{2}$/i.test(raw)) return `${CIRCLE_FLAGS_BASE}/${raw.toLowerCase()}.svg`;
+  const country = extractCountry(dest);
+  if (!country) return null;
+  return circleFlagSvgUrlFromCountryName(country);
+}
+
 // ══════════════════════════════════════
 // LOCATION SEARCH
 // ══════════════════════════════════════
@@ -910,32 +945,40 @@ async function searchLocation(query) {
 
 function showDropdown(results, query) {
   const dd = document.getElementById('loc-dropdown');
+  if (!dd) return;
   dd.innerHTML = '';
 
-  results.forEach(r => {
-    const parts = r.display_name.split(', ');
-    const name = parts[0];
-    const region = parts.slice(1, 3).join(', ');
+  try {
+    (results || []).forEach(r => {
+      const parts = r.display_name.split(', ');
+      const name = parts[0];
+      const region = parts.slice(1, 3).join(', ');
 
-    const item = document.createElement('div');
-    item.className = 'loc-dropdown-item';
-    item.innerHTML = `<strong>${escHtml(name)}</strong><span>${escHtml(region)}</span>`;
-    item.addEventListener('click', e => { e.stopPropagation(); selectLocation(r); });
-    dd.appendChild(item);
-  });
+      const item = document.createElement('div');
+      item.className = 'loc-dropdown-item';
+      item.innerHTML = `<strong>${escHtml(name)}</strong><span>${escHtml(region)}</span>`;
+      item.addEventListener('click', e => { e.stopPropagation(); selectLocation(r); });
+      dd.appendChild(item);
+    });
 
-  const manual = document.createElement('div');
-  manual.className = 'loc-dropdown-item manual';
-  manual.textContent = `Ajouter manuellement "${query}"`;
-  manual.addEventListener('click', e => { e.stopPropagation(); selectLocationManual(query); });
-  dd.appendChild(manual);
+    const manual = document.createElement('div');
+    manual.className = 'loc-dropdown-item manual';
+    manual.textContent = `Ajouter manuellement "${query}"`;
+    manual.addEventListener('click', e => { e.stopPropagation(); selectLocationManual(query); });
+    dd.appendChild(manual);
 
-  dd.style.display = 'block';
+    dd.style.display = 'block';
+  } catch (e) {
+    console.warn('showDropdown:', e);
+    closeDropdown();
+  }
 }
 
 function closeDropdown() {
   const dd = document.getElementById('loc-dropdown');
-  if (dd) dd.style.display = 'none';
+  if (!dd) return;
+  dd.style.display = 'none';
+  dd.innerHTML = '';
 }
 
 function selectLocation(result) {
@@ -1004,6 +1047,8 @@ function clearLocation() {
   document.getElementById('loc-search-state').style.display = 'block';
   document.getElementById('loc-selected-state').style.display = 'none';
   document.getElementById('loc-input').value = '';
+  const mm = document.getElementById('mini-map');
+  if (mm) mm.innerHTML = '';
   updatePreview();
 }
 
@@ -1193,30 +1238,15 @@ function updatePreview() {
     ville = currentDest.substring(0, firstComma).trim();
     paysTail = currentDest.substring(firstComma + 1).trim();
   }
-  let paysForIso = paysTail;
-  const lastComma = currentDest.lastIndexOf(',');
-  if (lastComma > -1) paysForIso = currentDest.substring(lastComma + 1).trim();
-
-  const ccStored = (currentCountryCode || '').trim().toUpperCase();
-  let flagIso = /^[A-Z]{2}$/.test(ccStored) ? ccStored : '';
-  if (!flagIso && paysForIso) flagIso = isoFromCountryName(paysForIso) || '';
 
   const coverTitle = currentDest
     ? `${escHtml(ville)}${paysTail ? `<span class="pays">, ${escHtml(paysTail)}</span>` : ''}`
     : `<em style="color:var(--gold-light);font-style:italic">Ma destination</em>`;
 
-  const flagMid = flagIso
-    ? `<div class="preview-cover-flag-wrap" role="img" aria-label="Drapeau ${escHtml(paysForIso || flagIso)}">
-      <div class="preview-flag-ring">
-        <img src="https://flagcdn.com/w80/${flagIso.toLowerCase()}.png" alt="" width="72" height="72" class="preview-flag-img" loading="lazy" decoding="async" referrerpolicy="no-referrer">
-      </div>
-    </div>`
-    : '';
-
   let html = `<div class="preview-cover">
     <div class="preview-cover-header">
       <div class="preview-cover-brand">Le travel book <em style="font-style:italic;color:var(--gold-light);opacity:.9">de chachou</em></div>
-      ${flagMid}
+      <div class="preview-cover-flag-wrap" id="preview-flag-slot" aria-hidden="true"></div>
       <div class="preview-cover-period-top">${periodStr.trim() ? escHtml(periodStr.toUpperCase()) : '&nbsp;'}</div>
     </div>
     <div class="preview-cover-title">${coverTitle}</div>
@@ -1302,6 +1332,31 @@ function updatePreview() {
   html += '</div>'; // preview-body
 
   document.getElementById('preview-content').innerHTML = html;
+  schedulePreviewCoverFlag();
+}
+
+function schedulePreviewCoverFlag() {
+  const gen = ++_previewCoverFlagGen;
+  const slot = document.getElementById('preview-flag-slot');
+  if (!slot) return;
+  slot.innerHTML = '';
+
+  void (async () => {
+    let url = null;
+    try {
+      url = await resolveCircleFlagSvgUrl(currentDest || '', currentCountryCode || '');
+    } catch {
+      /* silence */
+    }
+    if (gen !== _previewCoverFlagGen || !slot.isConnected || !url) return;
+    const pays = extractCountry(currentDest || '');
+    const label = pays ? escHtml(pays) : '';
+    slot.setAttribute('role', 'img');
+    if (label) slot.setAttribute('aria-label', `Drapeau ${label}`);
+    slot.removeAttribute('aria-hidden');
+    slot.innerHTML =
+      `<img src="${escHtml(url)}" alt="" width="72" height="72" class="preview-flag-svg" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+  })();
 }
 
 // ══════════════════════════════════════
@@ -1375,8 +1430,7 @@ function resetFormCore() {
 
   renderPhotoGrid();
 
-  const banner = document.getElementById('shared-banner');
-  if (banner) banner.remove();
+  document.querySelectorAll('#tab-form .shared-banner, #shared-banner').forEach(el => el.remove());
 
   document.querySelectorAll('#lists-accordion .accordion-item').forEach(ai => _accordionClose(ai));
   const firstAccItem = document.querySelector('#lists-accordion .accordion-item');
@@ -1400,9 +1454,8 @@ function loadFicheIntoForm(fiche) {
   const rawCC = fiche.countryCode;
   currentCountryCode = (typeof rawCC === 'string' && /^[a-z]{2}$/i.test(rawCC)) ? rawCC.toUpperCase() : '';
   if (!currentCountryCode && currentDest) {
-    const lc = currentDest.lastIndexOf(',');
-    if (lc > -1)
-      currentCountryCode = isoFromCountryName(currentDest.slice(lc + 1).trim()) || '';
+    const tail = extractCountry(currentDest);
+    currentCountryCode = tail ? (isoFromCountryName(tail) || '') : '';
   }
   currentLat       = fiche.lat ?? null;
   currentLng       = fiche.lng ?? null;
@@ -1431,6 +1484,27 @@ function loadFicheIntoForm(fiche) {
 // ══════════════════════════════════════
 // MY NOTES LIST
 // ══════════════════════════════════════
+async function scheduleFicheListFlags(renderGen) {
+  const slots = document.querySelectorAll('#fiches-list .fiche-card-flag-slot');
+  await Promise.all(
+    Array.from(slots).map(async slot => {
+      const idx = Number(slot.dataset.ficheIdx);
+      const f = fiches[idx];
+      if (!f) return;
+      let url = null;
+      try {
+        url = await resolveCircleFlagSvgUrl(f.dest || '', f.countryCode || '');
+      } catch {
+        /* silence */
+      }
+      if (renderGen !== _ficheListFlagGen || !slot.isConnected || !url) return;
+      slot.removeAttribute('aria-hidden');
+      slot.innerHTML =
+        `<img src="${escHtml(url)}" alt="" width="56" height="56" loading="lazy" decoding="async" class="fiche-flag-img" referrerpolicy="no-referrer">`;
+    })
+  );
+}
+
 function renderFicheList() {
   const container = document.getElementById('fiches-list');
   if (!container) return;
@@ -1443,10 +1517,11 @@ function renderFicheList() {
     return;
   }
 
+  const gen = ++_ficheListFlagGen;
   container.innerHTML = fiches.map((f, i) => `
     <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
-      <div class="fiche-card-top"></div>
+      <div class="fiche-card-flag-slot" data-fiche-idx="${i}" aria-hidden="true"></div>
       <div class="fiche-card-body">
         <div class="fiche-card-dest">${escHtml(f.dest || 'Destination inconnue')}</div>
         <div class="fiche-card-meta">${escHtml([f.mois, f.annee].filter(Boolean).join(' · '))}</div>
@@ -1476,6 +1551,7 @@ function renderFicheList() {
         </div>
       </div>
     </div>`).join('');
+  queueMicrotask(() => void scheduleFicheListFlags(gen));
 }
 
 function editFiche(i) {
@@ -1520,6 +1596,7 @@ function shareFiche(i) {
 // ══════════════════════════════════════
 function showSharedFiche(fiche) {
   window._sharedFiche = fiche;
+  switchTab('form', { skipFormReset: true });
 
   const formTab = document.getElementById('tab-form');
   const banner = document.createElement('div');
