@@ -518,14 +518,32 @@ function updateNavBar() {
   back.removeAttribute('hidden');
 }
 
+/** Remonte tous les conteneurs scrollables principaux (+ fenêtre sur mobile). */
+function scrollAppToTop(opts = {}) {
+  const behavior = opts.instant ? 'auto' : 'smooth';
+  const tryScroll = el => {
+    if (!el) return;
+    try {
+      el.scrollTo({ top: 0, left: 0, behavior });
+    } catch {
+      el.scrollTop = 0;
+    }
+  };
+  tryScroll(window);
+  tryScroll(document.documentElement);
+  tryScroll(document.body);
+  tryScroll(document.querySelector('#editorView .editor-scroll'));
+  tryScroll(document.getElementById('previewView'));
+  tryScroll(document.getElementById('detailView'));
+}
+
 /** Clic sur la barre du titre → accueil (nouvelle fiche, formulaire réinitialisé selon confirmations). */
 function navSiteTitleGoHome(ev) {
   if (ev?.target?.closest?.('#topnav-back')) return;
   closeShareMenu();
   if (!switchTab('form', { skipFormReset: false })) return;
   switchView('editor');
-  const sc = document.querySelector('#editorView .editor-scroll');
-  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
+  scrollAppToTop();
 }
 
 function navBarBack() {
