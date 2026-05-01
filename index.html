@@ -1932,11 +1932,133 @@
       pointer-events: none;
       opacity: 0;
       transition: opacity .25s;
-      white-space: nowrap;
+      white-space: normal;
+      max-width: min(92vw, 28rem);
+      text-align: center;
       box-shadow: var(--shadow-card);
     }
 
-    .toast.show { opacity: 1; }
+    .toast.show { opacity: 1; pointer-events: auto; }
+
+    .toast.toast--loading {
+      padding-left: 40px;
+    }
+
+    .toast.toast--loading::before {
+      content: '';
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      margin-top: -8px;
+      border: 2px solid rgba(240, 235, 224, 0.35);
+      border-top-color: var(--creme);
+      border-radius: 50%;
+      animation: toast-spin .7s linear infinite;
+      box-sizing: border-box;
+    }
+
+    @keyframes toast-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Journal */
+    .journal-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .journal-date-display {
+      margin: 0;
+      padding: 0.85rem 0 0.25rem;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: clamp(1.65rem, 4vw, 2.15rem);
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+      opacity: 0.95;
+    }
+
+    .journal-textarea {
+      width: 100%;
+      min-height: 140px;
+      resize: vertical;
+      padding: 14px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-soft);
+      background: var(--input-fill);
+      color: var(--marine);
+      line-height: 1.625;
+      font-size: 1rem;
+      font-weight: 400;
+    }
+
+    .journal-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-soft);
+      background: var(--input-fill);
+      color: var(--ink);
+      font-size: 1rem;
+      font-weight: 400;
+    }
+
+    .journal-budget-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 240px;
+    }
+
+    .journal-budget-row input[type="number"] {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-soft);
+      background: var(--input-fill);
+      color: var(--ink);
+      font-size: 1rem;
+      font-weight: 400;
+      -moz-appearance: textfield;
+    }
+
+    .journal-budget-row input[type="number"]::-webkit-outer-spin-button,
+    .journal-budget-row input[type="number"]::-webkit-inner-spin-button {
+      margin: 0;
+      appearance: none;
+    }
+
+    .journal-currency-suffix {
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .journal-list-block {
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-lg);
+      background: var(--card);
+      padding: 14px 14px 10px;
+    }
+
+    .fiche-country-title {
+      font-size: clamp(1.125rem, 2.8vw, 1.375rem);
+      font-weight: 700;
+      color: var(--ink);
+      margin: 1.5rem 0 0.85rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 2px solid var(--border-soft);
+    }
+
+    .fiche-country-title:first-child {
+      margin-top: 0.25rem;
+    }
 
     /* ══════════════════════════════════════
        PARTAGER (modal)
@@ -2241,24 +2363,29 @@
           </div>
         </div>
 
-        <nav class="secondary-nav" aria-label="Zone de travail">
+        <nav class="secondary-nav" aria-label="Navigation principale">
           <div class="secondary-nav-inner">
-            <button class="tab-btn active" id="tab-form-btn" type="button" onclick="switchTab('form')">Nouvelle fiche</button>
+            <button class="tab-btn active" id="tab-journal-btn" type="button" onclick="switchTab('journal')">Mon journal</button>
             <button class="tab-btn" id="tab-list-btn" type="button" onclick="switchTab('list')">Mes fiches</button>
           </div>
         </nav>
 
-        <!-- ── FORM TAB ── -->
-        <div class="tab-panel active" id="tab-form">
+        <!-- ── MON JOURNAL ── -->
+        <div class="tab-panel active" id="tab-journal">
 
           <div class="form-shell">
 
           <header class="article-hero">
-            <h1 class="ds-h1">Composer votre fiche</h1>
-            <p class="ds-secondary ds-lead">Comme dans un guide de voyage&nbsp;: lieu, temps, carnet d’adresses et impressions — lisible du premier au dernier mot.</p>
+            <h1 class="ds-h1">Mon journal</h1>
+            <p class="ds-secondary ds-lead">Une entrée par jour — ta fiche se met à jour toute seule à partir de ce que tu écris.</p>
           </header>
 
           <div class="article-flow">
+
+          <section class="editor-section" aria-labelledby="h-journal-date">
+            <h2 class="section-label" id="h-journal-date">Date</h2>
+            <p class="journal-date-display" id="journal-date-display" role="status" aria-live="polite" aria-labelledby="h-journal-date"></p>
+          </section>
 
           <section class="editor-section" aria-labelledby="h-destination">
           <h2 class="section-label" id="h-destination">Destination</h2>
@@ -2290,109 +2417,12 @@
           </div>
           </section>
 
-          <!-- PÉRIODE -->
-          <section class="editor-section" aria-labelledby="h-periode">
-          <h2 class="section-label" id="h-periode">Période</h2>
-          <div class="period-row">
-            <select id="sel-mois" onchange="updatePreview()">
-              <option value="">Mois</option>
-              <option>Janvier</option><option>Février</option><option>Mars</option>
-              <option>Avril</option><option>Mai</option><option>Juin</option>
-              <option>Juillet</option><option>Août</option><option>Septembre</option>
-              <option>Octobre</option><option>Novembre</option><option>Décembre</option>
-            </select>
-            <select id="sel-annee" onchange="updatePreview()">
-              <option value="">Année</option>
-              <option>2022</option><option>2023</option><option>2024</option>
-              <option>2025</option><option>2026</option><option>2027</option>
-            </select>
-          </div>
+          <section class="editor-section" aria-labelledby="h-journal-corps">
+            <h2 class="section-label" id="h-journal-corps">Ma journée</h2>
+            <textarea class="journal-textarea" id="journal-body"
+              placeholder="Ce qui t’a marquée, tes impressions, anecdotes…"></textarea>
           </section>
 
-          <!-- LISTES — Accordion -->
-          <section class="editor-section editor-section--flush" aria-label="Adresses et listes">
-          <div class="accordion" id="lists-accordion">
-
-            <div class="accordion-item" data-key="hotels">
-              <button class="accordion-header" type="button">
-                <span class="accordion-indicator"></span>
-                <span class="accordion-label">Hébergement</span>
-                <span class="accordion-badge" id="badge-hotels" data-count="0">0</span>
-                <svg class="accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </button>
-              <div class="accordion-content">
-                <div class="accordion-body">
-                  <div class="list-items" id="list-hotels"></div>
-                  <button class="add-item-btn" onclick="addItem('hotels')">+ Ajouter</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="accordion-item" data-key="restaurants">
-              <button class="accordion-header" type="button">
-                <span class="accordion-indicator"></span>
-                <span class="accordion-label">Restaurants</span>
-                <span class="accordion-badge" id="badge-restaurants" data-count="0">0</span>
-                <svg class="accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </button>
-              <div class="accordion-content">
-                <div class="accordion-body">
-                  <div class="list-items" id="list-restaurants"></div>
-                  <button class="add-item-btn" onclick="addItem('restaurants')">+ Ajouter</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="accordion-item" data-key="boutiques">
-              <button class="accordion-header" type="button">
-                <span class="accordion-indicator"></span>
-                <span class="accordion-label">Shopping & Boutiques</span>
-                <span class="accordion-badge" id="badge-boutiques" data-count="0">0</span>
-                <svg class="accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </button>
-              <div class="accordion-content">
-                <div class="accordion-body">
-                  <div class="list-items" id="list-boutiques"></div>
-                  <button class="add-item-btn" onclick="addItem('boutiques')">+ Ajouter</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="accordion-item" data-key="lieux">
-              <button class="accordion-header" type="button">
-                <span class="accordion-indicator"></span>
-                <span class="accordion-label">Visites & Lieux</span>
-                <span class="accordion-badge" id="badge-lieux" data-count="0">0</span>
-                <svg class="accordion-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </button>
-              <div class="accordion-content">
-                <div class="accordion-body">
-                  <div class="list-items" id="list-lieux"></div>
-                  <button class="add-item-btn" onclick="addItem('lieux')">+ Ajouter</button>
-                </div>
-              </div>
-            </div>
-
-          </div><!-- /accordion -->
-          </section>
-
-          <!-- NOTES -->
-          <section class="editor-section" aria-labelledby="h-notes">
-            <h2 class="section-label" id="h-notes">Notes &amp; impressions</h2>
-            <textarea class="notes-textarea" id="notes-textarea"
-              placeholder="Transports, budget, ambiance, conseils pratiques, souvenirs..."
-              oninput="updatePreview()"></textarea>
-          </section>
-
-          <!-- PHOTOS -->
           <section class="editor-section" aria-labelledby="h-photos">
             <h2 class="section-label" id="h-photos">Photos</h2>
             <div class="photo-drop-zone" id="photo-drop-zone"
@@ -2411,21 +2441,15 @@
           </div><!-- /article-flow -->
 
     <div class="editor-actions">
-      <div class="editor-actions-inner">
-        <div class="editor-actions-pdf-row">
-          <button type="button" class="btn-open-preview" onclick="switchView('preview')">Voir la fiche</button>
-          <button class="btn-pdf" onclick="exportPDF()">↓&nbsp;&nbsp;Télécharger la fiche PDF</button>
-        </div>
-        <div class="actions-row-2">
-          <button class="btn-save" onclick="saveFiche()">Sauvegarder la fiche</button>
-          <button class="btn-new" onclick="newFiche()">Nouvelle fiche</button>
-        </div>
+      <div class="editor-actions-inner" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;width:100%;">
+          <button class="btn-save" type="button" onclick="saveJournalEntry()">Sauvegarder</button>
+          <button class="btn-new" type="button" onclick="newJournalEntry()">Nouvelle entrée</button>
       </div>
     </div>
 
           </div><!-- /form-shell -->
 
-        </div><!-- /tab-form -->
+        </div><!-- /tab-journal -->
         <div class="tab-panel" id="tab-list">
           <div class="form-shell">
           <header class="article-hero tab-list-hero">
@@ -2442,32 +2466,6 @@
     </div><!-- /editor-scroll -->
 
   </div><!-- /editorView -->
-
-  <!-- ─── PREVIEW VIEW ─── -->
-  <div id="previewView" class="view" role="tabpanel">
-    <div class="preview-inner">
-      <!-- PDF shortcut in preview -->
-      <div class="preview-actions">
-        <button type="button" class="btn-edit-preview" onclick="editFromPreview()"
-          aria-label="Retour au mode édition">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-          Éditer
-        </button>
-        <button type="button" class="share-trigger" onclick="openShareMenu(null)" title="Partager"
-          aria-haspopup="dialog" aria-controls="share-modal" aria-expanded="false">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-            <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
-          </svg>
-          <span class="share-trigger-label">Partager</span>
-        </button>
-        <button type="button" class="btn-pdf-preview" onclick="exportPDF()">↓&nbsp; PDF</button>
-      </div>
-      <div id="preview-content"></div>
-    </div>
-  </div>
 
   <!-- ─── DETAIL VIEW (Mes fiches → lecture seule) ─── -->
   <div id="detailView" class="view" role="tabpanel">

@@ -115,15 +115,12 @@ async function refreshFichesFromSupabase() {
 // ══════════════════════════════════════
 /** @type {object[]} */
 let fiches = [];
-/** uuid en édition, ou null si nouvelle fiche */
-let editingId = null;
 /** index dans fiches[] pour la vue détail lecture seule */
 let detailFicheIdx = null;
 /** id Supabase de la fiche ouverte en plein écran — null si aucune ; préféré à l’index (réordonnancement) */
 let detailFicheId = null;
 
 let _detailFlagGen = 0;
-let _previewCoverFlagGen = 0;
 let _ficheListFlagGen = 0;
 let currentPhotos = [];
 let currentLat = null;
@@ -132,7 +129,66 @@ let currentDest = '';
 let currentDestShort = '';
 let currentCountryCode = ''; /* ISO 3166-1 alpha-2 — fourni par Nominatim quand disponible */
 
+/** Date d’entrée au format YYYY-MM-DD (navigateur ou fuseau de la destination). */
+let journalEntryDateISO = '';
+
 let locDebounceTimer = null;
+
+function frenchLongDateLabel(d) {
+  return new Date(d).toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+function isoDateLocal(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
+function setJournalDateDisplay(label) {
+  const el = document.getElementById('journal-date-display');
+  if (!el || !label) return;
+  el.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function applyBrowserJournalDate() {
+  const d = new Date();
+  journalEntryDateISO = isoDateLocal(d);
+  setJournalDateDisplay(frenchLongDateLabel(d));
+}
+
+async function refreshJournalDisplayedDate() {
+  const latOk = typeof currentLat === 'number' && Number.isFinite(currentLat);
+  const lngOk = typeof currentLng === 'number' && Number.isFinite(currentLng);
+
+  if (latOk && lngOk) {
+    try {
+      const res = await fetch(
+        `https://timeapi.io/api/time/current/coordinate?latitude=${currentLat}&longitude=${currentLng}`
+      );
+      const data = await res.json();
+      const dateTime = data?.dateTime;
+      if (typeof dateTime !== 'string' || dateTime.length < 10) throw new Error('missing dateTime');
+
+      journalEntryDateISO = dateTime.slice(0, 10);
+      const parsed = new Date(dateTime);
+      if (Number.isNaN(parsed.getTime())) throw new Error('invalid date');
+      setJournalDateDisplay(
+        parsed.toLocaleDateString('fr-FR', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        })
+      );
+    } catch {
+      applyBrowserJournalDate();
+    }
+  } else applyBrowserJournalDate();
+}
 
 // ══════════════════════════════════════
 // INIT
@@ -151,7 +207,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const sharedFiche = JSON.parse(decodeURIComponent(atob(param)));
       renderFicheList();
-      initAccordion();
       showSharedFiche(sharedFiche);
       updateNavBar();
       return;
@@ -160,13 +215,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Normal init
-  initAccordion();
-  initLists();
-  // Open first accordion section by default
-  const firstAccItem = document.querySelector('#lists-accordion .accordion-item');
-  if (firstAccItem) _accordionOpen(firstAccItem);
-  updatePreview();
+  applyBrowserJournalDate();
+  renderPhotoGrid();
   renderFicheList();
   updateNavBar();
 });
@@ -189,255 +239,13 @@ document.addEventListener('keydown', e => {
 
 });
 
-function initLists() {
-  ['hotels', 'restaurants', 'boutiques', 'lieux'].forEach(k => renderList(k, ['']));
-}
 
 // ══════════════════════════════════════
-// ACCORDION
+// TAB SWITCHING : Mon journal ↔ Mes fiches
 // ══════════════════════════════════════
-function initAccordion() {
-  document.querySelectorAll('#lists-accordion .accordion-header').forEach(header => {
-    header.addEventListener('click', () => {
-      const item = header.closest('.accordion-item');
-      const isOpen = item.classList.contains('open');
-
-      // Close all open items
-      document.querySelectorAll('#lists-accordion .accordion-item.open').forEach(open => {
-        _accordionClose(open);
-      });
-
-      // Toggle: open only if it was previously closed
-      if (!isOpen) _accordionOpen(item);
-    });
-  });
+function ensureEditorVisible() {
+  document.getElementById('editorView')?.classList.add('active');
 }
-
-function _accordionOpen(item) {
-  const content = item.querySelector('.accordion-content');
-  item.classList.add('open');
-  content.style.maxHeight = content.scrollHeight + 'px';
-}
-
-function _accordionClose(item) {
-  const content = item.querySelector('.accordion-content');
-  item.classList.remove('open');
-  content.style.maxHeight = '0';
-}
-
-function _accordionRefreshHeight(key) {
-  const item = document.querySelector(`#lists-accordion .accordion-item[data-key="${key}"]`);
-  if (item && item.classList.contains('open')) {
-    const content = item.querySelector('.accordion-content');
-    content.style.maxHeight = content.scrollHeight + 'px';
-  }
-}
-
-function _accordionUpdateBadge(key) {
-  const badge = document.getElementById(`badge-${key}`);
-  if (!badge) return;
-  const count = getListData(key).filter(x => x.trim()).length;
-  badge.textContent = count;
-  badge.setAttribute('data-count', count);
-}
-
-// ══════════════════════════════════════
-// AUTOCOMPLETE — datasets (offline, no API)
-// ══════════════════════════════════════
-const AUTOCOMPLETE_DATA = {
-  hotels: [
-    'Mama Shelter', 'InterContinental Bordeaux', 'Hôtel de Sèze',
-    'Novotel', 'Ibis', 'Mercure', 'Sofitel', 'Marriott', 'Hilton',
-    'Four Seasons', 'Le Méridien', 'Hôtel boutique', 'Auberge de jeunesse',
-    'B&B Hôtel', 'Pension de famille', 'Gîte', 'Chambre d\'hôtes', 'Airbnb'
-  ],
-  restaurants: [
-    'Cent 33', 'Le Chien de Pavlov', 'Miles', 'Racines', 'Symbiose',
-    'Brasserie du marché', 'Restaurant gastronomique', 'Bistrot local',
-    'Pizzeria', 'Trattoria', 'Sushi bar', 'Food market', 'Street food',
-    'Café terrasse', 'Cave à vins', 'Crêperie', 'Boulangerie-café',
-    'Tapas bar', 'Table d\'hôtes', 'Rooftop restaurant'
-  ],
-  boutiques: [
-    'Marché des Capucins', 'Promenade Sainte-Catherine',
-    'Marché artisanal', 'Centre commercial', 'Marché de Noël',
-    'Librairie indépendante', 'Galerie d\'antiquités', 'Marché aux puces',
-    'Épicerie fine', 'Cave à vins', 'Boutique de souvenirs',
-    'Galerie marchande', 'Concept store', 'Marché bio', 'Marché fermier'
-  ],
-  lieux: [
-    'Place de la Bourse', 'Darwin', 'Cap Ferret', 'Dune du Pilat',
-    'Musée des Beaux-Arts', 'Cathédrale', 'Vieux port', 'Jardin public',
-    'Quartier historique', 'Panorama', 'Plage principale', 'Parc national',
-    'Château', 'Tour historique', 'Pont emblématique', 'Marché central',
-    'Promenade bord de mer', 'Vieille ville', 'Marché aux fleurs'
-  ]
-};
-
-let _acFloatPinnedInput = null;
-
-function _acEnsureFloatRoot() {
-  _acEnsureFloatListeners();
-  let el = document.getElementById('ac-dropdown-float');
-  if (!el) {
-    el = document.createElement('ul');
-    el.id = 'ac-dropdown-float';
-    el.className = 'autocomplete-list autocomplete-list--float';
-    el.setAttribute('role', 'listbox');
-    el.hidden = true;
-    document.body.appendChild(el);
-  }
-  return el;
-}
-
-let _acFloatListeners = false;
-function _acEnsureFloatListeners() {
-  if (_acFloatListeners) return;
-  _acFloatListeners = true;
-  window.addEventListener('scroll', _acReflowFloat, true);
-  window.addEventListener('resize', _acReflowFloat);
-}
-
-function _acReflowFloat() {
-  const inp = _acFloatPinnedInput;
-  const fl = document.getElementById('ac-dropdown-float');
-  if (!inp || !fl || fl.hidden) return;
-  if (!document.body.contains(inp)) {
-    _acClose();
-    return;
-  }
-  _acPositionFloat(inp, fl);
-}
-
-function _acPositionFloat(input, floatEl) {
-  const r = input.getBoundingClientRect();
-  const pad = 8;
-  const vw = document.documentElement.clientWidth;
-  let left = r.left;
-  const w = r.width;
-  if (left + w > vw - pad) left = Math.max(pad, vw - w - pad);
-  if (left < pad) left = pad;
-  floatEl.style.left = `${Math.round(left)}px`;
-  floatEl.style.top = `${Math.round(r.bottom + 2)}px`;
-  floatEl.style.width = `${Math.round(w)}px`;
-  const maxVh = Math.max(120, window.innerHeight - (r.bottom + 2) - pad);
-  floatEl.style.maxHeight = `${Math.min(180, maxVh)}px`;
-}
-
-// ──  Autocomplete engine ──
-function _acAttach(input, dataset) {
-  let activeIdx = -1;
-
-  input.addEventListener('input', () => {
-    const q = input.value.trim();
-    activeIdx = -1;
-    if (!q) { _acClose(); return; }
-
-    const hits = dataset
-      .filter(s => s.toLowerCase().includes(q.toLowerCase()))
-      .slice(0, 7);
-
-    if (hits.length === 0) { _acClose(); return; }
-    _acRender(input, hits, q);
-  });
-
-  input.addEventListener('keydown', e => {
-    const list = document.getElementById('ac-dropdown-float');
-    const items = list ? list.querySelectorAll('.autocomplete-item') : [];
-    if (!items.length) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      activeIdx = Math.min(activeIdx + 1, items.length - 1);
-      _acSetActive(items, activeIdx);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      activeIdx = Math.max(activeIdx - 1, -1);
-      _acSetActive(items, activeIdx);
-    } else if (e.key === 'Enter' && activeIdx >= 0) {
-      e.preventDefault();
-      items[activeIdx].dispatchEvent(new MouseEvent('click'));
-    } else if (e.key === 'Escape') {
-      _acClose();
-    }
-  });
-
-  input.addEventListener('blur', () =>
-    setTimeout(() => {
-      if (_acFloatPinnedInput === input) _acClose();
-    }, 160)
-  );
-}
-
-function _acRender(input, hits, query) {
-  const list = _acEnsureFloatRoot();
-  list.innerHTML = '';
-  hits.forEach(hit => {
-    const li = document.createElement('li');
-    li.className = 'autocomplete-item';
-    li.innerHTML = _acHighlight(hit, query);
-    li.addEventListener('mousedown', e => e.preventDefault());
-    li.addEventListener('click', () => {
-      input.value = hit;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      _acClose();
-      input.focus();
-    });
-    list.appendChild(li);
-  });
-  list.hidden = false;
-  _acFloatPinnedInput = input;
-  _acPositionFloat(input, list);
-}
-
-function _acHighlight(text, query) {
-  const i = text.toLowerCase().indexOf(query.toLowerCase());
-  if (i === -1) return escHtml(text);
-  return (
-    escHtml(text.slice(0, i)) +
-    '<mark>' + escHtml(text.slice(i, i + query.length)) + '</mark>' +
-    escHtml(text.slice(i + query.length))
-  );
-}
-
-function _acClose() {
-  const list = document.getElementById('ac-dropdown-float');
-  if (!list) return;
-  list.innerHTML = '';
-  list.hidden = true;
-  _acFloatPinnedInput = null;
-}
-
-function _acSetActive(items, idx) {
-  items.forEach((li, i) => li.classList.toggle('ac-active', i === idx));
-}
-
-// ══════════════════════════════════════
-// VIEW SWITCHING (top-level: editor ↔ preview)
-// ══════════════════════════════════════
-function switchView(view) {
-  closeDetailPanel();
-  const toEditor = view === 'editor';
-
-  document.getElementById('editorView').classList.toggle('active', toEditor);
-  document.getElementById('previewView').classList.toggle('active', !toEditor);
-
-  // Always refresh preview when opening it
-  if (!toEditor) updatePreview();
-  updateNavBar();
-}
-
-/** Retour au formulaire depuis « Voir la fiche » — réutilise l’état déjà dans le DOM (même flux que editFiche) */
-function editFromPreview() {
-  switchTab('form', { skipFormReset: true });
-  switchView('editor');
-  const sc = document.querySelector('#editorView .editor-scroll');
-  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ══════════════════════════════════════
-// TAB SWITCHING (inside editor: form ↔ list)
-// ══════════════════════════════════════
 function clearDetailSelectionAndDom() {
   detailFicheIdx = null;
   detailFicheId = null;
@@ -457,54 +265,48 @@ function hideDetailOverlayIfVisible() {
 }
 
 /**
- * @param {'form'|'list'} tab
- * @param {{ skipFormReset?: boolean, skipDetailReset?: boolean }} [options]
+ * @param {'journal'|'list'} tab
+ * @param {{ skipJournalReset?: boolean, skipDetailReset?: boolean }} [options]
  */
 function switchTab(tab, options = {}) {
-  const { skipFormReset = false, skipDetailReset = false } = options;
+  const { skipJournalReset = false, skipDetailReset = false } = options;
 
-  if (tab === 'form' && !skipFormReset) {
-    if (!confirmAbandonIfEditing()) return false;
-    resetFormCore();
-  }
+  if (tab === 'journal' && !skipJournalReset) resetJournalForm();
 
-  const toForm = tab === 'form';
+  const toJournal = tab === 'journal';
 
-  if (!toForm && !skipDetailReset) {
+  if (!toJournal && !skipDetailReset) {
     clearDetailSelectionAndDom();
     hideDetailOverlayIfVisible();
   }
 
-  const tf = document.getElementById('tab-form');
+  const tj = document.getElementById('tab-journal');
   const tl = document.getElementById('tab-list');
-  if (tf) {
-    tf.classList.toggle('active', toForm);
-    tf.toggleAttribute('hidden', !toForm);
+  if (tj) {
+    tj.classList.toggle('active', toJournal);
+    tj.toggleAttribute('hidden', !toJournal);
   }
   if (tl) {
-    tl.classList.toggle('active', !toForm);
-    tl.toggleAttribute('hidden', toForm);
+    tl.classList.toggle('active', !toJournal);
+    tl.toggleAttribute('hidden', toJournal);
   }
-  document.getElementById('tab-form-btn').classList.toggle('active', toForm);
-  document.getElementById('tab-list-btn').classList.toggle('active', !toForm);
+  const jBtn = document.getElementById('tab-journal-btn');
+  const lBtn = document.getElementById('tab-list-btn');
+  if (jBtn) jBtn.classList.toggle('active', toJournal);
+  if (lBtn) lBtn.classList.toggle('active', !toJournal);
 
-  if (!toForm) renderFicheList();
+  if (!toJournal) renderFicheList();
+  ensureEditorVisible();
   updateNavBar();
   return true;
 }
 
-function confirmAbandonIfEditing() {
-  if (editingId == null) return true;
-  return confirm('Abandonner les modifications en cours ?');
-}
-
-/** Accueil = nouvelle fiche seule (pas prévisualisation, pas détail, pas édition d'une fiche existante). */
+/** Accueil = onglet journal seul, sans panneau détail. */
 function currentPageIsHome() {
   if (detailFicheIdx != null || detailFicheId != null || document.getElementById('detailView')?.classList.contains('active')) return false;
   const editorVisible = document.getElementById('editorView')?.classList.contains('active');
-  const formTab = document.getElementById('tab-form')?.classList.contains('active');
-  const previewOn = document.getElementById('previewView')?.classList.contains('active');
-  return editorVisible && formTab && !previewOn && editingId === null;
+  const journalTab = document.getElementById('tab-journal')?.classList.contains('active');
+  return editorVisible && !!journalTab;
 }
 
 /** Navbar : pas de retour sur l'accueil uniquement ; sinon sous-page (liste, détail, aperçu, édition). */
@@ -533,38 +335,24 @@ function scrollAppToTop(opts = {}) {
   tryScroll(document.documentElement);
   tryScroll(document.body);
   tryScroll(document.querySelector('#editorView .editor-scroll'));
-  tryScroll(document.getElementById('previewView'));
   tryScroll(document.getElementById('detailView'));
 }
 
-/** Clic sur la barre du titre → accueil (nouvelle fiche, formulaire réinitialisé selon confirmations). */
+/** Clic sur la barre du titre → journal vierge. */
 function navSiteTitleGoHome(ev) {
   if (ev?.target?.closest?.('#topnav-back')) return;
   closeShareMenu();
-  if (!switchTab('form', { skipFormReset: false })) return;
-  switchView('editor');
+  switchTab('journal', { skipJournalReset: false });
   scrollAppToTop();
 }
 
 function navBarBack() {
-  if (document.getElementById('previewView')?.classList.contains('active')) {
-    editFromPreview();
-    return;
-  }
   if (detailFicheIdx != null || detailFicheId != null || document.getElementById('detailView')?.classList.contains('active')) {
     closeDetailPanel({ goList: true });
     return;
   }
-  /* Mes fiches → accueil (nouvelle fiche) ; confirmAbandon dans switchTab */
   if (document.getElementById('tab-list')?.classList.contains('active')) {
-    switchTab('form');
-    return;
-  }
-  /* Formulaire : modification d'une fiche existante → Mes fiches */
-  if (document.getElementById('tab-form')?.classList.contains('active') && editingId !== null) {
-    if (!confirmAbandonIfEditing()) return;
-    resetFormCore();
-    switchTab('list', { skipFormReset: true });
+    switchTab('journal');
     return;
   }
 }
@@ -576,7 +364,7 @@ function closeDetailPanel(opts = {}) {
   if (dv) dv.classList.remove('active');
   if (ev) ev.classList.add('active');
   if (opts.goList && document.getElementById('tab-list'))
-    switchTab('list', { skipFormReset: true, skipDetailReset: true });
+    switchTab('list', { skipJournalReset: true, skipDetailReset: true });
   updateNavBar();
 }
 
@@ -654,7 +442,6 @@ function renderFicheDetail(idx) {
     ${notes}
     ${pics}
     <div class="detail-actions" onclick="event.stopPropagation()">
-      <button type="button" class="btn-detail-edit" onclick="event.stopPropagation(); editFiche(${idx});">Modifier</button>
       <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
     </div>`;
 
@@ -679,19 +466,32 @@ function openFicheDetail(idx) {
 // ══════════════════════════════════════
 // TOAST
 // ══════════════════════════════════════
-function toast(msg) {
+function toastDismiss() {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  clearTimeout(el._timer);
+  el._timer = null;
+  el.textContent = '';
+  el.classList.remove('show', 'toast--loading');
+}
+
+function toast(msg, opts = {}) {
   const el = document.getElementById('toast');
   if (!el) return;
   const text = msg == null ? '' : String(msg).trim();
+  const { loading = false, persist = false } = opts;
   clearTimeout(el._timer);
-  if (!text) {
-    el.textContent = '';
-    el.classList.remove('show');
+  el.classList.toggle('toast--loading', loading);
+  if (!text && !loading) {
+    toastDismiss();
     return;
   }
   el.textContent = text;
   el.classList.add('show');
-  el._timer = setTimeout(() => el.classList.remove('show'), 2800);
+  if (!persist && !loading)
+    el._timer = setTimeout(() => {
+      el.classList.remove('show', 'toast--loading');
+    }, 2800);
 }
 
 // ══════════════════════════════════════
@@ -714,15 +514,6 @@ function buildShareLines(dest, mois, annee, url) {
   return lines.join('\n');
 }
 
-function buildSharePayloadFromEditor() {
-  const f = collectFiche();
-  if (!f.dest || !String(f.dest).trim()) return null;
-  const url = makeFicheShareUrl(f);
-  const title = `Fiche voyage — ${f.dest}`;
-  const text = buildShareLines(f.dest, f.mois, f.annee, url);
-  return { url, title, text };
-}
-
 function buildSharePayloadFromSavedFiche(f) {
   if (!f) return buildSharePayloadFallback();
   const url = makeFicheShareUrl(f);
@@ -742,8 +533,9 @@ function buildSharePayloadFallback() {
 
 function getActiveSharePayload() {
   if (_shareContext) return _shareContext;
-  return buildSharePayloadFromEditor() || buildSharePayloadFallback();
+  return buildSharePayloadFallback();
 }
+
 
 function openShareMenu(ctx) {
   _shareContext = ctx || null;
@@ -1061,7 +853,6 @@ function selectLocation(result) {
 
   applySelectedState();
   closeDropdown();
-  updatePreview();
 }
 
 function selectLocationManual(name) {
@@ -1077,7 +868,6 @@ function selectLocationManual(name) {
   document.getElementById('loc-input').value = '';
   applySelectedState();
   closeDropdown();
-  updatePreview();
 }
 
 function applySelectedState() {
@@ -1098,6 +888,8 @@ function applySelectedState() {
     document.getElementById('mini-map').innerHTML =
       `<div class="mini-map-placeholder">Carte non disponible — saisie manuelle</div>`;
   }
+
+  void refreshJournalDisplayedDate();
 }
 
 function clearLocation() {
@@ -1111,7 +903,7 @@ function clearLocation() {
   document.getElementById('loc-input').value = '';
   const mm = document.getElementById('mini-map');
   if (mm) mm.innerHTML = '';
-  updatePreview();
+  void refreshJournalDisplayedDate();
 }
 
 // ══════════════════════════════════════
@@ -1148,7 +940,6 @@ async function geolocate() {
           currentCountryCode = isoFromCountryName(country) || '';
 
         applySelectedState();
-        updatePreview();
       } catch {
         toast('Erreur lors de la géolocalisation');
       }
@@ -1162,75 +953,6 @@ async function geolocate() {
   );
 }
 
-// ══════════════════════════════════════
-// LISTS
-// ══════════════════════════════════════
-const PLACEHOLDERS = {
-  hotels:      "Nom de l'hôtel, auberge, Airbnb...",
-  restaurants: 'Nom du restaurant, type de cuisine...',
-  boutiques:   'Boutique, marché, centre commercial...',
-  lieux:       'Musée, monument, quartier, plage...'
-};
-
-function renderList(key, items) {
-  const dataset = AUTOCOMPLETE_DATA[key] || [];
-  const container = document.getElementById(`list-${key}`);
-  container.innerHTML = '';
-
-  items.forEach((val, i) => {
-    const row = document.createElement('div');
-    row.className = 'list-item-row';
-    row.innerHTML = `
-      <span class="list-item-num">${i + 1}</span>
-      <div class="autocomplete-wrap">
-        <input type="text" class="list-item-input"
-          value="${escHtml(val)}"
-          placeholder="${escHtml(PLACEHOLDERS[key] || '')}"
-          autocomplete="off">
-      </div>
-      <button class="list-item-remove" onclick="removeItem('${key}',${i})">✕</button>`;
-    container.appendChild(row);
-
-    const input = row.querySelector('.list-item-input');
-    input.addEventListener('input', () => {
-      updatePreview();
-      _accordionUpdateBadge(key);
-    });
-    _acAttach(input, dataset);
-  });
-
-  requestAnimationFrame(() => {
-    _accordionRefreshHeight(key);
-    _accordionUpdateBadge(key);
-  });
-}
-
-function getListData(key) {
-  return Array.from(
-    document.getElementById(`list-${key}`).querySelectorAll('.list-item-input')
-  ).map(i => i.value);
-}
-
-function addItem(key) {
-  const items = getListData(key);
-  items.push('');
-  renderList(key, items);
-  const inputs = document.getElementById(`list-${key}`).querySelectorAll('.list-item-input');
-  inputs[inputs.length - 1].focus();
-  updatePreview();
-}
-
-function removeItem(key, idx) {
-  const items = getListData(key);
-  if (items.length <= 1) {
-    items[0] = '';
-    renderList(key, items);
-  } else {
-    items.splice(idx, 1);
-    renderList(key, items);
-  }
-  updatePreview();
-}
 
 // ══════════════════════════════════════
 // PHOTOS
@@ -1256,7 +978,6 @@ function onPhotoFiles(files) {
     reader.onload = e => {
       currentPhotos.push(e.target.result);
       renderPhotoGrid();
-      updatePreview();
     };
     reader.readAsDataURL(file);
   });
@@ -1277,200 +998,13 @@ function renderPhotoGrid() {
 function removePhoto(i) {
   currentPhotos.splice(i, 1);
   renderPhotoGrid();
-  updatePreview();
 }
 
 // ══════════════════════════════════════
-// PREVIEW
+// JOURNAL — saisie quotidienne & Claude → fiches
 // ══════════════════════════════════════
-function updatePreview() {
-  const mois = document.getElementById('sel-mois').value;
-  const annee = document.getElementById('sel-annee').value;
-  const notes = document.getElementById('notes-textarea')?.value || '';
-  const periodStr = [mois, annee].filter(Boolean).join(' ');
 
-  const hotels      = getListData('hotels').filter(x => x.trim());
-  const restaurants = getListData('restaurants').filter(x => x.trim());
-  const boutiques   = getListData('boutiques').filter(x => x.trim());
-  const lieux       = getListData('lieux').filter(x => x.trim());
-
-  let ville = currentDest, paysTail = '';
-  const firstComma = currentDest.indexOf(',');
-  if (firstComma > -1) {
-    ville = currentDest.substring(0, firstComma).trim();
-    paysTail = currentDest.substring(firstComma + 1).trim();
-  }
-
-  const coverTitle = currentDest
-    ? `${escHtml(ville)}${paysTail ? `<span class="pays">, ${escHtml(paysTail)}</span>` : ''}`
-    : `<em style="color:var(--gold-light);font-style:italic">Ma destination</em>`;
-
-  let html = `<div class="preview-cover">
-    <div class="preview-cover-header">
-      <div class="preview-cover-brand">Le travel book <em style="font-style:italic;color:var(--gold-light);opacity:.9">de chachou</em></div>
-      <div class="preview-cover-flag-wrap" id="preview-flag-slot" aria-hidden="true"></div>
-      <div class="preview-cover-period-top">${periodStr.trim() ? escHtml(periodStr.toUpperCase()) : '&nbsp;'}</div>
-    </div>
-    <div class="preview-cover-title">${coverTitle}</div>
-    <div class="preview-cover-period-bottom">${escHtml(periodStr) || '&nbsp;'}</div>
-    ${currentLat !== null
-      ? `<div class="preview-cover-coords">${Math.abs(currentLat).toFixed(4)}° ${currentLat >= 0 ? 'N' : 'S'} &middot; ${Math.abs(currentLng).toFixed(4)}° ${currentLng >= 0 ? 'E' : 'O'}</div>`
-      : ''}
-    <div class="preview-cover-line"></div>
-  </div>`;
-
-  // Photos
-  if (currentPhotos.length > 0) {
-    html += '<div class="preview-photos">';
-    if (currentPhotos.length === 1) {
-      html += `<div class="preview-photos-1"><img src="${currentPhotos[0]}" alt=""></div>`;
-    } else if (currentPhotos.length === 2) {
-      html += `<div class="preview-photos-2">
-        <img src="${currentPhotos[0]}" alt="">
-        <img src="${currentPhotos[1]}" alt="">
-      </div>`;
-    } else {
-      html += `<div class="preview-photos-3plus">
-        <img class="main-photo" src="${currentPhotos[0]}" alt="">
-        <div class="side-photos">
-          <img src="${currentPhotos[1]}" alt="">
-          <img src="${currentPhotos[2]}" alt="">
-        </div>
-      </div>`;
-    }
-    html += '</div>';
-  }
-
-  // Map
-  html += '<div class="preview-map">';
-  if (currentLat !== null && currentLng !== null) {
-    html += `<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=${currentLng-.05},${currentLat-.05},${currentLng+.05},${currentLat+.05}&layer=mapnik&marker=${currentLat},${currentLng}" loading="lazy"></iframe>`;
-  } else {
-    html += `<div class="preview-map-placeholder">Carte non disponible</div>`;
-  }
-  html += '</div>';
-
-  // Body
-  html += '<div class="preview-body">';
-
-  const sections = [
-    { label: 'Hébergement',        items: hotels },
-    { label: 'Restaurants',        items: restaurants },
-    { label: 'Shopping & Boutiques', items: boutiques },
-    { label: 'Visites & Lieux',    items: lieux }
-  ];
-
-  sections.forEach(sec => {
-    html += `<div class="preview-section">
-      <div class="preview-section-header">
-        <div class="preview-section-square"></div>
-        <div class="preview-section-title">${escHtml(sec.label)}</div>
-        <div class="preview-section-line"></div>
-      </div>`;
-    if (sec.items.length === 0) {
-      html += `<div class="preview-empty">Aucun élément renseigné</div>`;
-    } else {
-      sec.items.forEach(item => {
-        html += `<div class="preview-item">
-          <div class="preview-item-bullet"></div>
-          <div class="preview-item-text">${escHtml(item)}</div>
-        </div>`;
-      });
-    }
-    html += '</div>';
-  });
-
-  if (notes.trim()) {
-    html += `<div class="preview-notes">
-      <div class="preview-notes-text">${escHtml(notes).replace(/\n/g, '<br>')}</div>
-    </div>`;
-  }
-
-  html += `<div class="preview-footer">
-    <div class="preview-footer-text">${escHtml(currentDest || '—')}</div>
-    <div class="preview-footer-text">${escHtml(periodStr || '—')}</div>
-  </div>`;
-
-  html += '</div>'; // preview-body
-
-  document.getElementById('preview-content').innerHTML = html;
-  schedulePreviewCoverFlag();
-}
-
-function schedulePreviewCoverFlag() {
-  const gen = ++_previewCoverFlagGen;
-  const slot = document.getElementById('preview-flag-slot');
-  if (!slot) return;
-  slot.innerHTML = '';
-
-  void (async () => {
-    let url = null;
-    try {
-      url = await resolveCircleFlagSvgUrl(currentDest || '', currentCountryCode || '');
-    } catch {
-      /* silence */
-    }
-    if (gen !== _previewCoverFlagGen || !slot.isConnected || !url) return;
-    const pays = extractCountry(currentDest || '');
-    const label = pays ? escHtml(pays) : '';
-    slot.setAttribute('role', 'img');
-    if (label) slot.setAttribute('aria-label', `Drapeau ${label}`);
-    slot.removeAttribute('aria-hidden');
-    slot.innerHTML =
-      `<img src="${escHtml(url)}" alt="" width="72" height="72" class="preview-flag-svg" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
-  })();
-}
-
-// ══════════════════════════════════════
-// COLLECT / SAVE / NEW
-// ══════════════════════════════════════
-function collectFiche() {
-  return {
-    dest:       currentDest,
-    destShort:  currentDestShort,
-    countryCode: currentCountryCode || '',
-    lat:        currentLat,
-    lng:       currentLng,
-    mois:      document.getElementById('sel-mois').value,
-    annee:     document.getElementById('sel-annee').value,
-    hotels:      getListData('hotels').filter(x => x.trim()),
-    restaurants: getListData('restaurants').filter(x => x.trim()),
-    boutiques:   getListData('boutiques').filter(x => x.trim()),
-    lieux:       getListData('lieux').filter(x => x.trim()),
-    notes:     document.getElementById('notes-textarea').value,
-    photos:    currentPhotos,
-    savedAt:   new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-  };
-}
-
-async function saveFiche() {
-  if (!currentDest.trim()) { toast('Veuillez sélectionner une destination'); return; }
-  const fiche = collectFiche();
-  const payload = buildDbPayload(fiche);
-  try {
-    if (editingId) {
-      const { error } = await supabase.from('fiches').update(payload).eq('id', editingId);
-      if (error) throw error;
-    } else {
-      const { data, error } = await supabase.from('fiches').insert(payload).select('id').single();
-      if (error) throw error;
-      if (data?.id) editingId = data.id;
-    }
-    toast('Fiche sauvegardée !');
-    await refreshFichesFromSupabase();
-    renderFicheList();
-  } catch (e) {
-    console.error(e);
-    toast('Erreur lors de la sauvegarde');
-  }
-}
-
-/**
- * Vide le formulaire (destination, cartes, listes avec une ligne vide, notes, photos, édition).
- * Ne change pas les onglets ni la vue prévisualisation.
- */
-function resetFormCore() {
-  editingId = null;
+function resetJournalForm() {
   currentDest = '';
   currentDestShort = '';
   currentCountryCode = '';
@@ -1481,66 +1015,292 @@ function resetFormCore() {
   document.getElementById('loc-search-state').style.display = 'block';
   document.getElementById('loc-selected-state').style.display = 'none';
   document.getElementById('loc-input').value = '';
-  document.getElementById('sel-mois').value = '';
-  document.getElementById('sel-annee').value = '';
-  document.getElementById('notes-textarea').value = '';
-
   closeDropdown();
 
-  initLists();
-  ['hotels', 'restaurants', 'boutiques', 'lieux'].forEach(k => _accordionUpdateBadge(k));
+  void refreshJournalDisplayedDate();
+
+  const body = document.getElementById('journal-body');
+  if (body) body.value = '';
 
   renderPhotoGrid();
 
-  document.querySelectorAll('#tab-form .shared-banner, #shared-banner').forEach(el => el.remove());
-
-  document.querySelectorAll('#lists-accordion .accordion-item').forEach(ai => _accordionClose(ai));
-  const firstAccItem = document.querySelector('#lists-accordion .accordion-item');
-  if (firstAccItem) _accordionOpen(firstAccItem);
-
-  updatePreview();
+  document.querySelectorAll('#tab-journal .shared-banner, #shared-banner').forEach(el => el.remove());
 }
 
-function newFiche() {
-  if (!confirmAbandonIfEditing()) return;
-  resetFormCore();
-  switchTab('form', { skipFormReset: true });
-  switchView('editor');
+function newJournalEntry() {
+  resetJournalForm();
+  switchTab('journal', { skipJournalReset: true });
   const sc = document.querySelector('#editorView .editor-scroll');
   if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function loadFicheIntoForm(fiche) {
-  currentDest      = fiche.dest || '';
-  currentDestShort = fiche.destShort || fiche.dest || '';
-  const rawCC = fiche.countryCode;
-  currentCountryCode = (typeof rawCC === 'string' && /^[a-z]{2}$/i.test(rawCC)) ? rawCC.toUpperCase() : '';
-  if (!currentCountryCode && currentDest) {
-    const tail = extractCountry(currentDest);
-    currentCountryCode = tail ? (isoFromCountryName(tail) || '') : '';
+function mergeUniqueNormalized(base, additions) {
+  const out = Array.isArray(base) ? [...base] : [];
+  const seen = new Set(out.map(x => String(x).toLowerCase().trim()));
+  for (const x of additions || []) {
+    const t = String(x).trim();
+    if (!t) continue;
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
   }
-  currentLat       = fiche.lat ?? null;
-  currentLng       = fiche.lng ?? null;
-  currentPhotos    = Array.isArray(fiche.photos) ? fiche.photos : [];
+  return out;
+}
 
-  if (currentDest) {
-    applySelectedState();
-  } else {
-    document.getElementById('loc-search-state').style.display = 'block';
-    document.getElementById('loc-selected-state').style.display = 'none';
+function collectJournalPhotosFromEntries(rows) {
+  const seen = new Set();
+  const urls = [];
+  for (const row of rows || []) {
+    const u = unwrapPhotosBlob(row.photos).urls;
+    for (const x of u) {
+      const s = String(x).trim();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      urls.push(s);
+      if (urls.length >= 18) break;
+    }
+    if (urls.length >= 18) break;
+  }
+  return urls;
+}
+
+function extractAnthropicJson(data) {
+  const block =
+    Array.isArray(data?.content)
+      ? data.content.find(c => c && c.type === 'text')
+      : null;
+  let raw = block?.text;
+  if (typeof raw !== 'string') raw = '{}';
+  const cleaned = raw
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return {
+      dest: '',
+      hotels: [],
+      restaurants: [],
+      lieux: [],
+      boutiques: [],
+      notes: ''
+    };
+  }
+}
+
+function anthropicMessagesUrl() {
+  return '/api/claude';
+}
+
+function anthropicRequestHeaders() {
+  return { 'Content-Type': 'application/json' };
+}
+
+/** Fiche existante dont le champ `dest` contient le pays (ex. « France » dans « Bordeaux, France »). */
+async function fetchFicheByPays(destRef) {
+  const pays =
+    extractCountry(destRef || '').trim() || String(destRef || '').trim();
+  if (!pays) return null;
+  const { data, error } = await supabase
+    .from('fiches')
+    .select('*')
+    .ilike('dest', `%${pays}%`)
+    .limit(1);
+  if (error) {
+    console.warn('[fiches] ilike', error);
+    return null;
+  }
+  return Array.isArray(data) && data[0] ? data[0] : null;
+}
+
+async function analyseJournalEtMettreAJourFiche(destinationNorm) {
+  const destLookup = destinationNorm.trim();
+  if (!destLookup) return;
+
+  const { data: entries, error: fetchErr } = await supabase
+    .from('journal_entries')
+    .select('*')
+    .eq('destination', destLookup)
+    .order('date', { ascending: true });
+
+  if (fetchErr) throw fetchErr;
+  const rows = Array.isArray(entries) ? entries : [];
+  if (rows.length === 0) return;
+
+  const payloadClaude = rows.map(r => ({
+    destination: r.destination,
+    date: r.date,
+    texte: r.texte ?? '',
+    lat: r.lat ?? null,
+    lng: r.lng ?? null
+  }));
+
+  const systemPrompt = `Tu es un assistant voyage. Analyse ces entrées de journal et extrais les informations.
+Réponds UNIQUEMENT en JSON valide sans markdown ni backticks :
+{
+  "dest": "Ville, Pays",
+  "hotels": ["hotel1"],
+  "restaurants": ["resto1"],
+  "lieux": ["lieu1"],
+  "boutiques": ["boutique1"],
+  "notes": "Synthèse courte des impressions"
+}
+Ne duplique pas les éléments. Fusionne intelligemment.`;
+
+  const resp = await fetch(anthropicMessagesUrl(), {
+    method: 'POST',
+    headers: anthropicRequestHeaders(),
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: JSON.stringify(payloadClaude) }]
+    })
+  });
+
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const msg = data?.error?.message || resp.statusText || 'Anthropic erreur';
+    throw new Error(msg);
   }
 
-  document.getElementById('sel-mois').value = fiche.mois || '';
-  document.getElementById('sel-annee').value = fiche.annee || '';
-  document.getElementById('notes-textarea').value = fiche.notes || '';
+  const json = extractAnthropicJson(data);
 
-  renderList('hotels',      fiche.hotels?.length      ? fiche.hotels      : ['']);
-  renderList('restaurants', fiche.restaurants?.length ? fiche.restaurants : ['']);
-  renderList('boutiques',   fiche.boutiques?.length   ? fiche.boutiques   : ['']);
-  renderList('lieux',       fiche.lieux?.length       ? fiche.lieux       : ['']);
+  const destForFiche =
+    typeof json.dest === 'string' && json.dest.trim() ? json.dest.trim() : destLookup;
 
-  renderPhotoGrid();
-  updatePreview();
+  const first = rows[0];
+  const d0 =
+    typeof first?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(first.date)
+      ? new Date(`${first.date}T12:00:00`)
+      : new Date();
+  const mois = d0.toLocaleDateString('fr-FR', { month: 'long' });
+  const annee = String(d0.getFullYear());
+  const savedLabel = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const paysRef = extractCountry(destForFiche || destLookup) || extractCountry(destLookup) || destLookup;
+  let ficheExistante =
+    (await fetchFicheByPays(paysRef)) || (await fetchFicheByPays(destLookup));
+
+  const journalPhotoUrls = collectJournalPhotosFromEntries(rows);
+
+  const metaCountry =
+    extractCountry(destForFiche || destLookup || '')
+      ? isoFromCountryName(extractCountry(destForFiche || destLookup || '')) || ''
+      : '';
+  const countryGuess =
+    metaCountry ||
+    currentCountryCode ||
+    (extractCountry(destForFiche || '') ? isoFromCountryName(extractCountry(destForFiche)) || '' : '');
+
+  if (ficheExistante) {
+    const app = rowToApp(ficheExistante);
+    const merged = {
+      dest: destForFiche || app.dest || destLookup,
+      lat: app.lat ?? first?.lat ?? null,
+      lng: app.lng ?? first?.lng ?? null,
+      mois: app.mois || mois,
+      annee: app.annee || annee,
+      hotels: mergeUniqueNormalized(app.hotels, coerceJsonArray(json.hotels)),
+      restaurants: mergeUniqueNormalized(app.restaurants, coerceJsonArray(json.restaurants)),
+      lieux: mergeUniqueNormalized(app.lieux, coerceJsonArray(json.lieux)),
+      boutiques: mergeUniqueNormalized(app.boutiques, coerceJsonArray(json.boutiques)),
+      notes: typeof json.notes === 'string' ? json.notes : app.notes || '',
+      photos: mergeUniqueNormalized(coercePhotosUrls(app.photos), journalPhotoUrls),
+      destShort: app.destShort || (destForFiche || destLookup).split(',')[0]?.trim() || '',
+      countryCode:
+        app.countryCode ||
+        (typeof countryGuess === 'string' ? countryGuess : '') ||
+        (typeof metaCountry === 'string' ? metaCountry : ''),
+      savedAt: savedLabel
+    };
+    const payload = buildDbPayload(merged);
+    const { error: upErr } = await supabase.from('fiches').update(payload).eq('id', ficheExistante.id);
+    if (upErr) throw upErr;
+    return;
+  }
+
+  const ins = buildDbPayload({
+    dest: destForFiche,
+    lat: first?.lat ?? null,
+    lng: first?.lng ?? null,
+    mois,
+    annee,
+    hotels: coerceJsonArray(json.hotels),
+    restaurants: coerceJsonArray(json.restaurants),
+    lieux: coerceJsonArray(json.lieux),
+    boutiques: coerceJsonArray(json.boutiques),
+    notes: typeof json.notes === 'string' ? json.notes : '',
+    photos: journalPhotoUrls,
+    destShort: destForFiche.split(',')[0]?.trim() || destForFiche,
+    countryCode: typeof countryGuess === 'string' ? countryGuess : '',
+    savedAt: savedLabel
+  });
+
+  const { error: insErr } = await supabase.from('fiches').insert(ins);
+  if (insErr) throw insErr;
+}
+
+async function saveJournalEntry() {
+  const destTrim = currentDest.trim();
+  if (!destTrim) {
+    toast('Choisis une destination pour cette entrée.');
+    return;
+  }
+
+  const entry_date = (journalEntryDateISO || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) {
+    toast('Date indisponible — attends le chargement ou réessaie.');
+    return;
+  }
+
+  const texte = document.getElementById('journal-body')?.value || '';
+  const photos = coercePhotosUrls(currentPhotos);
+
+  const rowPayload = {
+    destination: destTrim,
+    lat: currentLat ?? null,
+    lng: currentLng ?? null,
+    date: entry_date,
+    texte,
+    photos
+  };
+
+  try {
+    const { error } = await supabase.from('journal_entries').insert(rowPayload);
+    if (error) throw error;
+  } catch (e) {
+    console.error(e);
+    toast("Impossible d’enregistrer le journal — vérifie les colonnes Supabase.");
+    return;
+  }
+
+  toast('✨ Analyse de ta journée en cours...', { loading: true, persist: true });
+
+  try {
+    await analyseJournalEtMettreAJourFiche(destTrim);
+    toastDismiss();
+    toast('✨ Fiche mise à jour !');
+    await refreshFichesFromSupabase();
+    renderFicheList();
+  } catch (e) {
+    console.warn('[Claude / fiches]', e);
+    toastDismiss();
+    toast(
+      'Journal sauvegardé. La mise à jour auto de la fiche a échoué — réessaie plus tard.',
+      {
+        persist: false
+      }
+    );
+    try {
+      await refreshFichesFromSupabase();
+      renderFicheList();
+    } catch {
+      /* silence */
+    }
+  }
 }
 
 // ══════════════════════════════════════
@@ -1567,6 +1327,11 @@ async function scheduleFicheListFlags(renderGen) {
   );
 }
 
+function ficheListCountryLabel(f) {
+  const p = extractCountry(f?.dest || '');
+  return p && String(p).trim() ? String(p).trim() : 'Sans pays';
+}
+
 function renderFicheList() {
   const container = document.getElementById('fiches-list');
   if (!container) return;
@@ -1574,15 +1339,24 @@ function renderFicheList() {
   if (fiches.length === 0) {
     container.innerHTML = `<div class="empty-state">
       <div class="empty-state-icon">✦</div>
-      <div class="empty-state-text">Aucune fiche sauvegardée.<br>Créez votre première destination !</div>
+      <div class="empty-state-text">Aucune fiche encore.<br>Remplis une journée dans Mon journal — la fiche se crée automatiquement.</div>
     </div>`;
     return;
   }
 
-  const gen = ++_ficheListFlagGen;
-  container.innerHTML = fiches.map((f, i) => {
-    if (!f) return '';
-    return `
+  const byCountry = new Map();
+  fiches.forEach((f, i) => {
+    if (!f) return;
+    const label = ficheListCountryLabel(f);
+    if (!byCountry.has(label)) byCountry.set(label, []);
+    byCountry.get(label).push({ f, idx: i });
+  });
+
+  const countries = [...byCountry.keys()].sort((a, b) =>
+    a.localeCompare(b, 'fr', { sensitivity: 'base' })
+  );
+
+  const cardHtml = (f, i) => `
     <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
       <div class="fiche-card-body">
@@ -1610,29 +1384,23 @@ function renderFicheList() {
           </div>
         </div>
         <div class="fiche-card-actions" onclick="event.stopPropagation()">
-          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); editFiche(${i})">Modifier</button>
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); shareFiche(${i})">Partager</button>
           <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${i})">PDF</button>
           <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
       </div>
     </div>`;
-  }).join('');
+
+  const parts = [];
+  for (const c of countries) {
+    parts.push(`<h2 class="fiche-country-title">${escHtml(c)}</h2>`);
+    for (const { f, idx } of byCountry.get(c)) parts.push(cardHtml(f, idx));
+  }
+
+  const gen = ++_ficheListFlagGen;
+  container.innerHTML = parts.join('');
   queueMicrotask(() => void scheduleFicheListFlags(gen));
 }
-
-function editFiche(i) {
-  const f = fiches[i];
-  if (!f?.id) { toast('Impossible d’ouvrir cette fiche'); return; }
-  closeDetailPanel();
-  editingId = f.id;
-  loadFicheIntoForm(f);
-  switchTab('form', { skipFormReset: true });
-  switchView('editor');
-  const sc = document.querySelector('#editorView .editor-scroll');
-  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 async function deleteFiche(i) {
   const f = fiches[i];
   if (!f?.id) return;
@@ -1664,25 +1432,31 @@ function shareFiche(i) {
 // ══════════════════════════════════════
 // SHARED FICHE
 // ══════════════════════════════════════
+function dismissSharedBannerAndJournal() {
+  window._sharedFiche = null;
+  document.querySelectorAll('#shared-banner').forEach(el => el.remove());
+  resetJournalForm();
+  switchTab('journal', { skipJournalReset: true });
+}
+
 function showSharedFiche(fiche) {
   window._sharedFiche = fiche;
-  switchTab('form', { skipFormReset: true });
+  switchTab('journal', { skipJournalReset: true });
+  document.querySelectorAll('#shared-banner').forEach(el => el.remove());
 
-  const formTab = document.getElementById('tab-form');
+  const formTab = document.getElementById('tab-journal');
   const banner = document.createElement('div');
   banner.id = 'shared-banner';
   banner.className = 'shared-banner';
+  const titre = escHtml(fiche?.dest || 'Fiche reçue');
   banner.innerHTML = `
-    <div class="shared-banner-title">✦ Fiche partagée</div>
+    <div class="shared-banner-title">✦ Fiche partagée — ${titre}</div>
     <div class="shared-banner-actions">
-      <button class="btn-add-shared" onclick="addSharedFiche()">Ajouter à mes fiches</button>
-      <button class="btn-create-mine" onclick="newFiche()">Créer la mienne</button>
+      <button type="button" class="btn-add-shared" onclick="addSharedFiche()">Ajouter à mes fiches</button>
+      <button type="button" class="btn-create-mine" onclick="dismissSharedBannerAndJournal()">Fermer et écrire mon journal</button>
     </div>`;
   formTab.insertBefore(banner, formTab.firstChild);
-
-  loadFicheIntoForm(fiche);
 }
-
 async function addSharedFiche() {
   if (!window._sharedFiche) return;
   const shared = window._sharedFiche;
@@ -1771,13 +1545,8 @@ function importJSON(input) {
 
 
 // ══════════════════════════════════════
-// PDF EXPORT
+// PDF EXPORT (fiches uniquement depuis Mes fiches)
 // ══════════════════════════════════════
-async function exportPDF() {
-  if (!currentDest.trim()) { toast('Sélectionnez une destination avant de générer le PDF'); return; }
-  await generatePDF(collectFiche());
-}
-
 async function exportFichePDF(i) {
   await generatePDF(fiches[i]);
 }
@@ -1994,8 +1763,6 @@ function escHtml(str) {
 Object.assign(window, {
   navSiteTitleGoHome,
   openFicheDetail,
-  switchView,
-  editFromPreview,
   switchTab,
   navBarBack,
   openShareMenu,
@@ -2007,21 +1774,17 @@ Object.assign(window, {
   shareNative,
   geolocate,
   clearLocation,
-  addItem,
   exportAllJSON,
   importJSON,
-  exportPDF,
-  saveFiche,
-  newFiche,
-  removeItem,
   removePhoto,
-  editFiche,
   shareFiche,
   exportFichePDF,
   deleteFiche,
   addSharedFiche,
+  dismissSharedBannerAndJournal,
+  saveJournalEntry,
+  newJournalEntry,
   onLocInput,
-  updatePreview,
   onPhotoFiles,
   searchLocation
 });
