@@ -12,7 +12,8 @@
   <meta name="apple-mobile-web-app-title" content="Travel book">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Schoolbell&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -72,38 +73,90 @@
       --topnav-fixed-offset: calc(var(--topnav-h) + env(safe-area-inset-top, 0px) + 10px);
       --subnav-h: 48px;
       --actions-h: 96px;
-      --font-site: "Schoolbell", cursive;
+      --font-site: "Playfair Display", Georgia, serif;
     }
 
-    .schoolbell-regular {
+    /* Playfair Display partout — poids façon Lonely Planet */
+    html {
       font-family: var(--font-site);
       font-weight: 400;
-      font-style: normal;
+      min-height: 100%;
+      background-color: transparent;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font-family: inherit;
+    }
+
+    .ds-h1,
+    .ds-h2,
+    .ds-h3,
+    .detail-h1,
+    .detail-section-title,
+    .preview-cover-title,
+    .preview-section-title,
+    .section-label {
+      font-weight: 700;
+    }
+
+    .ds-secondary,
+    .ds-lead {
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    button,
+    .tab-btn,
+    .add-item-btn,
+    #topnav-back.nav-back-btn,
+    .editor-actions button,
+    .actions-row-2 button,
+    .preview-actions button,
+    .share-trigger,
+    .share-option-btn,
+    .share-modal-close,
+    .btn-import,
+    .fiche-action-btn,
+    .accordion-header,
+    .accordion-label,
+    .btn-detail-edit,
+    .btn-detail-pdf,
+    .gps-btn {
+      font-weight: 600;
+    }
+
+    select {
+      font-weight: 600;
+    }
+
+    .loc-input,
+    .notes-textarea,
+    .list-item-input {
+      font-weight: 400;
     }
 
     /* Hiérarchie typographique (équivalents Tailwind) */
     .ds-h1 {
-      font-family: var(--font-site);
       font-size: 2.25rem;   /* text-4xl */
-      font-weight: 400;
       letter-spacing: -0.025em;
       line-height: 1.2;
       color: var(--ink);
     }
     .ds-h2 {
-      font-family: var(--font-site);
       font-size: 1.5rem;    /* text-2xl */
-      font-weight: 400;
       line-height: 1.25;
       color: var(--ink);
     }
     .ds-h3 {
       font-size: 1.25rem;   /* text-xl */
-      font-weight: 400;
       line-height: 1.3;
       color: var(--ink);
     }
     .ds-body {
+      font-weight: 400;
       font-size: 1rem;      /* text-base */
       line-height: 1.625;   /* leading-relaxed */
       color: var(--marine);
@@ -112,17 +165,9 @@
       font-size: 0.875rem; /* text-sm */
       line-height: 1.6;
       color: var(--text-secondary);
-      font-weight: 500;
-    }
-
-    /* Fond : fichier = public/fond2.png → URL absolue depuis la racine du site (Vite) */
-    html {
-      min-height: 100%;
-      background-color: transparent;
     }
 
     body {
-      font-family: var(--font-site);
       font-weight: 400;
       font-size: 1rem;
       line-height: 1.625;
@@ -220,9 +265,8 @@
     }
 
     .site-nav-brand {
-      font-family: var(--font-site);
       font-size: clamp(1.35rem, 3.8vw, 1.95rem);
-      font-weight: 400;
+      font-weight: 700;
       line-height: 1.25;
       text-align: center;
       margin: 0;
@@ -249,7 +293,6 @@
       border: 1px solid rgba(240, 235, 224, 0.22);
       background: rgba(240, 235, 224, 0.1);
       color: var(--creme);
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.04em;
@@ -328,7 +371,6 @@
       background: none;
       border: none;
       cursor: pointer;
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.12em;
@@ -426,7 +468,8 @@
 
     .form-shell .article-hero .ds-secondary {
       color: var(--gris-bleu);
-      font-weight: 600;
+      font-style: italic;
+      font-weight: 400;
     }
 
     .editor-section {
@@ -517,7 +560,6 @@
       color: var(--muted);
       border: var(--glass-border);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.05em;
@@ -585,7 +627,6 @@
       color: var(--muted);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.04em;
@@ -611,7 +652,6 @@
       color: white;
       border: none;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.06em;
@@ -693,9 +733,8 @@
     .detail-head { margin-bottom: 1.5rem; }
 
     .detail-h1 {
-      font-family: var(--font-site);
       font-size: 2rem;
-      font-weight: 400;
+      font-weight: 700;
       color: var(--marine);
       margin-bottom: 0.35rem;
     }
@@ -703,7 +742,8 @@
     .detail-period {
       font-size: 0.9375rem;
       color: var(--gris-bleu);
-      font-weight: 600;
+      font-style: italic;
+      font-weight: 400;
     }
 
     .detail-section {
@@ -711,7 +751,6 @@
     }
 
     .detail-section-title {
-      font-family: var(--font-site);
       font-size: 18px;
       font-weight: 700;
       color: var(--marine);
@@ -786,7 +825,6 @@
       color: var(--creme);
       border: none;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -803,7 +841,6 @@
       color: white;
       border: none;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -823,7 +860,6 @@
       color: white;
       border: none;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.75rem;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -847,7 +883,6 @@
       color: var(--creme);
       border: none;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.8125rem;
       font-weight: 600;
       letter-spacing: 0.03em;
@@ -864,7 +899,6 @@
       color: var(--marine);
       border: 1px solid rgba(91, 143, 168, 0.45);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -884,7 +918,6 @@
 
     /* Titres de section — style h2 éditorial */
     .section-label {
-      font-family: var(--font-site);
       font-size: 1.5rem;
       font-weight: 700;
       letter-spacing: -0.02em;
@@ -913,7 +946,6 @@
       padding: 12px 14px;
       border: 1px solid rgba(91, 143, 168, 0.52);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 1rem;
       line-height: 1.5;
       color: var(--ink);
@@ -1065,7 +1097,6 @@
       padding: 12px 36px 12px 14px;
       border: 1px solid rgba(91, 143, 168, 0.52);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.9375rem;
       line-height: 1.5;
       color: var(--ink);
@@ -1147,7 +1178,6 @@
     .accordion-item.open .accordion-indicator { background: var(--gold); }
 
     .accordion-label {
-      font-family: var(--font-site);
       font-size: 1rem;
       font-weight: 700;
       letter-spacing: -0.01em;
@@ -1168,7 +1198,6 @@
       height: 22px;
       padding: 0 8px;
       border-radius: 999px;
-      font-family: var(--font-site);
       font-size: 0.6875rem;
       font-weight: 600;
       background: rgba(255, 255, 255, 0.55);
@@ -1232,7 +1261,6 @@
       padding: 9px 12px;
       border: 1px solid rgba(91, 143, 168, 0.48);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.9375rem;
       line-height: 1.5;
       color: var(--ink);
@@ -1266,7 +1294,6 @@
       border: 1px dashed var(--border);
       border-radius: var(--radius-lg);
       padding: 8px 14px;
-      font-family: var(--font-site);
       font-size: 0.8125rem;
       font-weight: 500;
       color: var(--muted);
@@ -1327,7 +1354,6 @@
 
     .autocomplete-item {
       padding: 8px 10px;
-      font-family: var(--font-site);
       font-size: 12px;
       color: var(--ink);
       cursor: pointer;
@@ -1354,7 +1380,6 @@
       padding: 14px 16px;
       border: 1px solid rgba(91, 143, 168, 0.48);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 1rem;
       line-height: 1.625;
       color: var(--marine);
@@ -1446,7 +1471,6 @@
       color: var(--marine);
       border: var(--glass-border);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.6875rem;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -1519,9 +1543,8 @@
     .fiche-card-dest {
       flex: 1;
       min-width: 0;
-      font-family: var(--font-site);
       font-size: 20px;
-      font-weight: 400;
+      font-weight: 700;
       color: var(--ink);
       margin-bottom: 0;
     }
@@ -1540,7 +1563,6 @@
     .fiche-stat { text-align: center; }
 
     .fiche-stat-num {
-      font-family: var(--font-site);
       font-size: 22px;
       font-weight: 300;
       color: var(--ink);
@@ -1565,7 +1587,6 @@
       background: transparent;
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.6875rem;
       font-weight: 600;
       letter-spacing: 0.04em;
@@ -1630,7 +1651,6 @@
       color: white;
       border: none;
       border-radius: 2px;
-      font-family: var(--font-site);
       font-size: 10px;
       font-weight: 500;
       letter-spacing: 1px;
@@ -1647,7 +1667,6 @@
       color: rgba(255,255,255,.5);
       border: 0.5px solid rgba(255,255,255,.15);
       border-radius: 2px;
-      font-family: var(--font-site);
       font-size: 10px;
       font-weight: 400;
       letter-spacing: 1px;
@@ -1711,7 +1730,6 @@
     }
 
     .preview-cover-brand {
-      font-family: var(--font-site);
       font-size: 11px;
       letter-spacing: 0.06em;
       color: rgba(255,255,255,.42);
@@ -1719,12 +1737,12 @@
       line-height: 1.3;
       justify-self: start;
       min-width: 0;
+      font-weight: 600;
     }
 
     .preview-cover-title {
-      font-family: var(--font-site);
       font-size: 48px;
-      font-weight: 400;
+      font-weight: 700;
       color: white;
       line-height: 1.1;
       margin-bottom: 12px;
@@ -1830,7 +1848,6 @@
     .preview-section-square { width: 20px; height: 20px; background: var(--red); flex-shrink: 0; }
 
     .preview-section-title {
-      font-family: var(--font-site);
       font-size: 0.9375rem;
       font-weight: 600;
       letter-spacing: -0.02em;
@@ -1875,7 +1892,6 @@
     }
 
     .preview-notes-text {
-      font-family: var(--font-site);
       font-style: italic;
       font-size: 15px;
       color: var(--muted);
@@ -1910,7 +1926,6 @@
       color: var(--creme);
       padding: 12px 26px;
       border-radius: var(--radius-lg);
-      font-family: var(--font-site);
       font-size: 0.875rem;
       letter-spacing: .02em;
       z-index: 9999;
@@ -1973,7 +1988,6 @@
     }
 
     .share-modal-title {
-      font-family: var(--font-site);
       font-size: 1.25rem;
       font-weight: 600;
       color: var(--ink);
@@ -2013,7 +2027,6 @@
       background: var(--glass-bg);
       backdrop-filter: blur(6px);
       color: var(--ink);
-      font-family: var(--font-site);
       font-size: 0.9375rem;
       font-weight: 600;
       text-align: left;
