@@ -1,26 +1,8 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "functions": {
-    "api/claude.js": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
-    { "source": "/api/claude", "destination": "/api/claude" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com; connect-src 'self' https://*.supabase.co https://nominatim.openstreetmap.org https://restcountries.com https://cdn.jsdelivr.net https://timeapi.io; img-src 'self' data: blob: https://flagcdn.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;"
-        }
-      ]
-    }
+    { "source": "/api/claude", "destination": "/api/claude.js" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
