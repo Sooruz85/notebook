@@ -1,3 +1,5 @@
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -32,6 +34,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: { message: 'Invalid JSON body' } });
   }
 
+  const outbound = { ...body, model: ANTHROPIC_MODEL };
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -39,7 +43,7 @@ export default async function handler(req, res) {
       'x-api-key': key,
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(outbound)
   });
 
   const data = await response.json().catch(() => ({}));

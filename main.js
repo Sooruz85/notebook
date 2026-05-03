@@ -1221,7 +1221,7 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
     method: 'POST',
     headers: anthropicRequestHeaders(),
     body: JSON.stringify({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1000,
       system: systemPrompt,
       messages: [{ role: 'user', content: JSON.stringify(payloadClaude) }]
