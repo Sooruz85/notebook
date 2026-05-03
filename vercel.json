@@ -2,6 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
+  "functions": {
+    "api/claude.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",

@@ -193,7 +193,26 @@ async function refreshJournalDisplayedDate() {
 // ══════════════════════════════════════
 // INIT
 // ══════════════════════════════════════
+function initPhotoDropZone() {
+  const zone = document.getElementById('photo-drop-zone');
+  if (!zone || zone.dataset.dropInit === '1') return;
+  zone.dataset.dropInit = '1';
+  zone.addEventListener('dragover', e => {
+    e.preventDefault();
+    zone.classList.add('dragover');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer?.files;
+    if (files?.length) onPhotoFiles(files);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  initPhotoDropZone();
+
   // Close location dropdown on outside click
   document.addEventListener('click', e => {
     if (!e.target.closest('.loc-search-wrap')) closeDropdown();
@@ -266,12 +285,20 @@ function hideDetailOverlayIfVisible() {
 
 /**
  * @param {'journal'|'list'} tab
- * @param {{ skipJournalReset?: boolean, skipDetailReset?: boolean }} [options]
+ * @param {{ skipJournalReset?: boolean, skipDetailReset?: boolean, forceJournalReset?: boolean }} [options]
  */
 function switchTab(tab, options = {}) {
-  const { skipJournalReset = false, skipDetailReset = false } = options;
+  const {
+    skipJournalReset = false,
+    skipDetailReset = false,
+    forceJournalReset = false
+  } = options;
 
-  if (tab === 'journal' && !skipJournalReset) resetJournalForm();
+  if (tab === 'journal' && !skipJournalReset) {
+    const tj = document.getElementById('tab-journal');
+    const alreadyOnJournalTab = !!tj?.classList.contains('active');
+    if (forceJournalReset || !alreadyOnJournalTab) resetJournalForm();
+  }
 
   const toJournal = tab === 'journal';
 
@@ -342,7 +369,7 @@ function scrollAppToTop(opts = {}) {
 function navSiteTitleGoHome(ev) {
   if (ev?.target?.closest?.('#topnav-back')) return;
   closeShareMenu();
-  switchTab('journal', { skipJournalReset: false });
+  switchTab('journal', { forceJournalReset: true });
   scrollAppToTop();
 }
 
@@ -835,15 +862,33 @@ function closeDropdown() {
   dd.innerHTML = '';
 }
 
-function selectLocation(result) {
-  const parts = result.display_name.split(', ');
-  const name = parts[0];
-  const country = parts[parts.length - 1];
+/** Texte destination affichée : état JS, ou repli sur le libellé sélectionné dans le DOM (anti-désync). */
+function getJournalDestinationTrimmed() {
+  let d = String(currentDest || '').trim();
+  if (d) return d;
+  const selected = document.getElementById('loc-selected-state');
+  const nameEl = document.getElementById('loc-selected-name');
+  if (!selected || !nameEl || selected.style.display === 'none') return '';
+  const fromDom = String(nameEl.textContent || '').trim();
+  if (!fromDom) return '';
+  currentDest = fromDom;
+  currentDestShort = fromDom;
+  return fromDom;
+}
 
-  currentDest = `${name}, ${country}`;
+function selectLocation(result) {
+  const full = String(result?.display_name || '').trim();
+  const parts = full.split(', ');
+  const name = parts[0] || '';
+  const country = parts.length > 1 ? parts[parts.length - 1] : name;
+
+  currentDest = full || `${name}, ${country}`.trim();
   currentDestShort = currentDest;
-  currentLat = parseFloat(result.lat);
-  currentLng = parseFloat(result.lon);
+
+  const plat = parseFloat(result?.lat);
+  const plon = parseFloat(result?.lon ?? result?.lng);
+  currentLat = Number.isFinite(plat) ? plat : null;
+  currentLng = Number.isFinite(plon) ? plon : null;
 
   const ccRaw = result.address?.country_code;
   if (ccRaw && /^[a-z]{2}$/i.test(String(ccRaw)))
@@ -957,21 +1002,6 @@ async function geolocate() {
 // ══════════════════════════════════════
 // PHOTOS
 // ══════════════════════════════════════
-function onDragOver(e) {
-  e.preventDefault();
-  document.getElementById('photo-drop-zone').classList.add('dragover');
-}
-
-function onDragLeave() {
-  document.getElementById('photo-drop-zone').classList.remove('dragover');
-}
-
-function onDrop(e) {
-  e.preventDefault();
-  document.getElementById('photo-drop-zone').classList.remove('dragover');
-  onPhotoFiles(e.dataTransfer.files);
-}
-
 function onPhotoFiles(files) {
   Array.from(files).forEach(file => {
     const reader = new FileReader();
@@ -1065,6 +1095,17 @@ function collectJournalPhotosFromEntries(rows) {
   return urls;
 }
 
+/** Pour la console : évite d’afficher des base64 entiers. */
+function journalRowsLiteForLog(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return list.map(r => ({
+    destination: r.destination,
+    date: r.date,
+    texteLen: String(r.texte || '').length,
+    nPhotos: coercePhotosUrls(r.photos ?? []).length
+  }));
+}
+
 function extractAnthropicJson(data) {
   const block =
     Array.isArray(data?.content)
@@ -1115,9 +1156,13 @@ async function fetchFicheByPays(destRef) {
   return Array.isArray(data) && data[0] ? data[0] : null;
 }
 
-async function analyseJournalEtMettreAJourFiche(destinationNorm) {
+async function analyseJournalEtMettreAJourFiche(destinationNorm, fallbackRows = null) {
   const destLookup = destinationNorm.trim();
-  if (!destLookup) return;
+  console.log('[analyseJournal] 🚀 Début', { destLookup, fallbackCount: fallbackRows?.length ?? 0 });
+  if (!destLookup) {
+    console.warn('[analyseJournal] destination vide, abandon.');
+    return;
+  }
 
   const { data: entries, error: fetchErr } = await supabase
     .from('journal_entries')
@@ -1125,9 +1170,29 @@ async function analyseJournalEtMettreAJourFiche(destinationNorm) {
     .eq('destination', destLookup)
     .order('date', { ascending: true });
 
+  if (fetchErr) console.error('[analyseJournal] 📚 FETCH erreur:', fetchErr);
+  console.log('[analyseJournal] 📚 FETCH résultat', {
+    nb: Array.isArray(entries) ? entries.length : -1,
+    rows: journalRowsLiteForLog(entries)
+  });
+
   if (fetchErr) throw fetchErr;
-  const rows = Array.isArray(entries) ? entries : [];
-  if (rows.length === 0) return;
+
+  let rows = Array.isArray(entries) ? [...entries] : [];
+
+  if (rows.length === 0 && Array.isArray(fallbackRows) && fallbackRows.length) {
+    console.warn(
+      '[analyseJournal] ⚠️ SELECT = 0 ligne — utilisation données client (cause fréquente : RLS lecture sur journal_entries).'
+    );
+    rows = [...fallbackRows];
+  }
+
+  if (rows.length === 0) {
+    console.error('[analyseJournal] ❌ Aucune ligne à analyser', { destLookup });
+    throw new Error(
+      'Aucune entrée journal lisible pour cette destination — vérifie la politique RLS SELECT sur `journal_entries`.'
+    );
+  }
 
   const payloadClaude = rows.map(r => ({
     destination: r.destination,
@@ -1149,24 +1214,48 @@ Réponds UNIQUEMENT en JSON valide sans markdown ni backticks :
 }
 Ne duplique pas les éléments. Fusionne intelligemment.`;
 
-  const resp = await fetch(anthropicMessagesUrl(), {
+  const url = anthropicMessagesUrl();
+  console.log('[analyseJournal] 🤖 Appel', url);
+
+  const resp = await fetch(url, {
     method: 'POST',
     headers: anthropicRequestHeaders(),
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 1000,
       system: systemPrompt,
       messages: [{ role: 'user', content: JSON.stringify(payloadClaude) }]
     })
   });
 
-  const data = await resp.json().catch(() => ({}));
+  const raw = await resp.text();
+  /** @type {Record<string, unknown>} */
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    console.error('[analyseJournal] ❌ Corps non-JSON (HTML build ?)', raw.slice(0, 400));
+    throw new Error('Réponse du proxy Claude invalide (vérifie /api/claude sur Vercel).');
+  }
+
+  console.log('[analyseJournal] 📡 Claude HTTP', resp.status);
+
   if (!resp.ok) {
-    const msg = data?.error?.message || resp.statusText || 'Anthropic erreur';
+    const msg =
+      typeof data?.error?.message === 'string'
+        ? data.error.message
+        : resp.statusText || 'Anthropic erreur';
+    console.error('[analyseJournal] ❌ API erreur:', msg, data);
     throw new Error(msg);
   }
 
+  if (!Array.isArray(data.content)) {
+    console.error('[analyseJournal] ❌ Réponse Anthropic sans content[]', data);
+    throw new Error('Réponse Claude inattendue (pas de content).');
+  }
+
   const json = extractAnthropicJson(data);
+  console.log('[analyseJournal] 📋 Synthèse extraite:', json);
 
   const destForFiche =
     typeof json.dest === 'string' && json.dest.trim() ? json.dest.trim() : destLookup;
@@ -1196,6 +1285,7 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
     (extractCountry(destForFiche || '') ? isoFromCountryName(extractCountry(destForFiche)) || '' : '');
 
   if (ficheExistante) {
+    console.log('[analyseJournal] 🗂️ Fiche existante id=', ficheExistante.id);
     const app = rowToApp(ficheExistante);
     const merged = {
       dest: destForFiche || app.dest || destLookup,
@@ -1218,7 +1308,11 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
     };
     const payload = buildDbPayload(merged);
     const { error: upErr } = await supabase.from('fiches').update(payload).eq('id', ficheExistante.id);
-    if (upErr) throw upErr;
+    if (upErr) {
+      console.error('[analyseJournal] ✏️ update fiches:', upErr);
+      throw upErr;
+    }
+    console.log('[analyseJournal] ✏️ Fiche mise à jour OK');
     return;
   }
 
@@ -1240,11 +1334,22 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
   });
 
   const { error: insErr } = await supabase.from('fiches').insert(ins);
-  if (insErr) throw insErr;
+  if (insErr) {
+    console.error('[analyseJournal] 🆕 insert fiches:', insErr);
+    throw insErr;
+  }
+  console.log('[analyseJournal] 🆕 Fiche créée OK');
 }
 
 async function saveJournalEntry() {
-  const destTrim = currentDest.trim();
+  const destTrim = getJournalDestinationTrimmed();
+
+  if (import.meta.env.DEV) {
+    console.log('destination:', destTrim);
+    console.log('lat:', currentLat);
+    console.log('lng:', currentLng);
+  }
+
   if (!destTrim) {
     toast('Choisis une destination pour cette entrée.');
     return;
@@ -1280,16 +1385,19 @@ async function saveJournalEntry() {
   toast('✨ Analyse de ta journée en cours...', { loading: true, persist: true });
 
   try {
-    await analyseJournalEtMettreAJourFiche(destTrim);
+    console.log('[saveJournal] ✅ Insert OK — lancement analyse Claude + fiche…', {
+      destination: destTrim
+    });
+    await analyseJournalEtMettreAJourFiche(destTrim, [rowPayload]);
     toastDismiss();
     toast('✨ Fiche mise à jour !');
     await refreshFichesFromSupabase();
     renderFicheList();
   } catch (e) {
-    console.warn('[Claude / fiches]', e);
+    console.error('[saveJournal + analyse] ❌', e);
     toastDismiss();
     toast(
-      'Journal sauvegardé. La mise à jour auto de la fiche a échoué — réessaie plus tard.',
+      `Journal sauvegardé. Analyse ou fiche — ${e instanceof Error ? e.message : String(e)}`,
       {
         persist: false
       }
