@@ -32,7 +32,8 @@ function coercePhotosUrls(photosProp) {
   return unwrapPhotosBlob(photosProp).urls;
 }
 
-function packPhotosBlob(urls, destShort, countryCode) {
+function packPhotosBlob(urls, destShort, countryCode, villes) {
+  const v = Array.isArray(villes) ? villes.filter(Boolean).map(x => String(x).trim()) : coerceJsonArray(villes);
   return {
     _v: 2,
     urls: Array.isArray(urls) ? urls : [],
@@ -41,7 +42,8 @@ function packPhotosBlob(urls, destShort, countryCode) {
       countryCode:
         typeof countryCode === 'string' && /^[a-z]{2}$/i.test(countryCode)
           ? countryCode.toUpperCase()
-          : ''
+          : '',
+      villes: v
     }
   };
 }
@@ -52,8 +54,15 @@ function rowToApp(row) {
   const urls = ph.urls.length ? ph.urls : coercePhotosUrls(row.photos);
   const meta = ph.meta || {};
   const ccRaw = meta.countryCode || '';
+  const voy = row.voyages;
+  let voyageNom = '';
+  if (voy && typeof voy === 'object' && !Array.isArray(voy) && typeof voy.nom === 'string')
+    voyageNom = voy.nom;
+  else if (Array.isArray(voy) && voy[0] && typeof voy[0].nom === 'string') voyageNom = voy[0].nom;
   return {
     id: row.id,
+    voyage_id: row.voyage_id ?? null,
+    voyageNom: voyageNom || '',
     dest: row.dest || '',
     lat: row.lat ?? null,
     lng: row.lng ?? null,
@@ -66,6 +75,7 @@ function rowToApp(row) {
     notes: row.notes || '',
     photos: urls,
     destShort: meta.destShort || '',
+    villes: coerceJsonArray(meta.villes).filter(Boolean),
     countryCode:
       typeof ccRaw === 'string' && /^[a-z]{2}$/i.test(ccRaw) ? ccRaw.toUpperCase() : '',
     savedAt: row.saved_at || '',
@@ -92,14 +102,16 @@ function buildDbPayload(app) {
     lieux: coerceJsonArray(app.lieux),
     notes: app.notes ?? '',
     saved_at: savedAtLabel,
-    photos: packPhotosBlob(photosUrls, app.destShort || '', app.countryCode || '')
+    photos: packPhotosBlob(photosUrls, app.destShort || '', app.countryCode || '', app.villes)
   };
+  if (app.voyage_id != null && app.voyage_id !== '') payload.voyage_id = app.voyage_id;
+  return payload;
 }
 
 async function refreshFichesFromSupabase() {
   const { data, error } = await supabase
     .from('fiches')
-    .select('*')
+    .select('*, voyages(nom)')
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[Supabase]', error);
@@ -115,6 +127,17 @@ async function refreshFichesFromSupabase() {
 // ══════════════════════════════════════
 /** @type {object[]} */
 let fiches = [];
+const LAST_VOYAGE_LS = 'travelbook_last_voyage_id';
+const JOURNAL_VOYAGE_NEW = '__new__';
+/** @type {{ id: string, nom: string, created_at?: string }[]} */
+let voyagesCache = [];
+/** dernières entrées journal (select avec voyages) */
+let journalEntriesCache = [];
+/** id entrée en cours d’édition — null = nouvelle entrée */
+let journalEditingEntryId = null;
+/** entrée dont le panneau lecture est ouvert */
+let journalExpandedEntryId = null;
+
 /** index dans fiches[] pour la vue détail lecture seule */
 let detailFicheIdx = null;
 /** id Supabase de la fiche ouverte en plein écran — null si aucune ; préféré à l’index (réordonnancement) */
@@ -191,6 +214,383 @@ async function refreshJournalDisplayedDate() {
 }
 
 // ══════════════════════════════════════
+// VOYAGES & LISTE JOURNAL
+// ══════════════════════════════════════
+function persistLastVoyageId(id) {
+  const s = id == null ? '' : String(id).trim();
+  if (!s) {
+    try {
+      localStorage.removeItem(LAST_VOYAGE_LS);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  try {
+    localStorage.setItem(LAST_VOYAGE_LS, s);
+  } catch {
+    /* ignore */
+  }
+}
+
+function getLastVoyageIdFromStorage() {
+  try {
+    const v = localStorage.getItem(LAST_VOYAGE_LS);
+    return v && String(v).trim() ? String(v).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+async function fetchVoyagesFromSupabase() {
+  const { data, error } = await supabase
+    .from('voyages')
+    .select('id, nom, created_at')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[voyages]', error);
+    voyagesCache = [];
+    return;
+  }
+  voyagesCache = Array.isArray(data) ? data : [];
+}
+
+function populateJournalVoyageSelect() {
+  const sel = document.getElementById('journal-voyage-select');
+  if (!sel) return;
+  const current = sel.value;
+  const editingEntry = journalEditingEntryId != null;
+  sel.innerHTML = '';
+  const emptyOpt = document.createElement('option');
+  emptyOpt.value = '';
+  emptyOpt.textContent = '— Choisir un voyage —';
+  sel.appendChild(emptyOpt);
+  for (const v of voyagesCache) {
+    if (!v?.id) continue;
+    const o = document.createElement('option');
+    o.value = String(v.id);
+    o.textContent = String(v.nom || 'Sans nom');
+    sel.appendChild(o);
+  }
+  const newOpt = document.createElement('option');
+  newOpt.value = JOURNAL_VOYAGE_NEW;
+  newOpt.textContent = '+ Créer un nouveau voyage';
+  sel.appendChild(newOpt);
+
+  if (editingEntry) return;
+
+  if (current === JOURNAL_VOYAGE_NEW) {
+    sel.value = JOURNAL_VOYAGE_NEW;
+    onJournalVoyageSelectChange();
+    return;
+  }
+
+  const last = getLastVoyageIdFromStorage();
+  if (last && [...sel.options].some(o => o.value === last)) sel.value = last;
+  else if (current && [...sel.options].some(o => o.value === current)) sel.value = current;
+}
+
+function onJournalVoyageSelectChange() {
+  const sel = document.getElementById('journal-voyage-select');
+  const block = document.getElementById('journal-new-voyage-block');
+  const input = document.getElementById('journal-new-voyage-input');
+  if (!sel || !block) return;
+  if (sel.value === JOURNAL_VOYAGE_NEW) {
+    block.hidden = false;
+    if (input) input.focus();
+  } else {
+    block.hidden = true;
+    if (input) input.value = '';
+    if (sel.value && sel.value !== '') persistLastVoyageId(sel.value);
+  }
+}
+
+async function createVoyageFromJournalInput() {
+  const input = document.getElementById('journal-new-voyage-input');
+  const nom = String(input?.value || '').trim();
+  if (!nom) {
+    toast('Saisis un nom pour le voyage.');
+    return;
+  }
+  try {
+    const { data, error } = await supabase.from('voyages').insert({ nom }).select('id, nom, created_at').single();
+    if (error) throw error;
+    await fetchVoyagesFromSupabase();
+    populateJournalVoyageSelect();
+    const sel = document.getElementById('journal-voyage-select');
+    if (sel && data?.id) {
+      sel.value = String(data.id);
+      persistLastVoyageId(String(data.id));
+    }
+    const block = document.getElementById('journal-new-voyage-block');
+    if (block) block.hidden = true;
+    if (input) input.value = '';
+    toast('Voyage créé');
+  } catch (e) {
+    console.error(e);
+    toast('Impossible de créer le voyage');
+  }
+}
+
+function getSelectedVoyageIdFromForm() {
+  const sel = document.getElementById('journal-voyage-select');
+  if (!sel) return '';
+  const v = String(sel.value || '').trim();
+  if (!v || v === JOURNAL_VOYAGE_NEW) return '';
+  return v;
+}
+
+async function refreshJournalEntriesFromSupabase() {
+  const { data, error } = await supabase
+    .from('journal_entries')
+    .select('*, voyages(nom)')
+    .order('date', { ascending: true });
+  if (error) {
+    console.error('[journal_entries]', error);
+    journalEntriesCache = [];
+    return;
+  }
+  journalEntriesCache = Array.isArray(data) ? data : [];
+}
+
+function journalEntryDateLabelFr(iso) {
+  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d
+    .toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' })
+    .replace(/\.$/, '');
+}
+
+function renderJournalEntriesList() {
+  const container = document.getElementById('journal-entries-list');
+  if (!container) return;
+
+  const rows = Array.isArray(journalEntriesCache) ? [...journalEntriesCache] : [];
+  if (rows.length === 0) {
+    container.innerHTML =
+      '<p class="ds-secondary" style="margin:0 0 1rem 0;">Aucune entrée pour le moment — remplis le formulaire ci-dessous.</p>';
+    return;
+  }
+
+  const byVoyage = new Map();
+  for (const r of rows) {
+    const vid = r.voyage_id != null ? String(r.voyage_id) : '';
+    if (!byVoyage.has(vid)) byVoyage.set(vid, []);
+    byVoyage.get(vid).push(r);
+  }
+
+  const voyageOrder = [];
+  for (const v of voyagesCache) {
+    if (v?.id != null && byVoyage.has(String(v.id))) voyageOrder.push(String(v.id));
+  }
+  for (const k of byVoyage.keys()) {
+    if (k && !voyageOrder.includes(k)) voyageOrder.push(k);
+  }
+  if (byVoyage.has('')) voyageOrder.push('');
+
+  const esc = escHtml;
+  const parts = [];
+  for (const vid of voyageOrder) {
+    const list = byVoyage.get(vid);
+    if (!list?.length) continue;
+    const sample = list[0];
+    const vnom =
+      sample.voyages && typeof sample.voyages === 'object' && sample.voyages.nom
+        ? sample.voyages.nom
+        : vid
+          ? voyagesCache.find(x => String(x.id) === vid)?.nom || 'Voyage'
+          : 'Sans voyage';
+    parts.push(`<div class="journal-voyage-block">
+      <h3 class="journal-voyage-heading">🗺️ ${esc(vnom)}</h3>
+      <ul class="journal-entry-rows">`);
+    for (const e of list) {
+      const eid = e.id != null ? String(e.id) : '';
+      if (!eid) continue;
+      const expanded = journalExpandedEntryId === eid;
+      const loc = String(e.destination || '').trim() || '—';
+      const dlab = journalEntryDateLabelFr(e.date);
+      const photos = coercePhotosUrls(e.photos ?? []);
+      const thumbs =
+        photos.length > 0
+          ? `<div class="journal-entry-photos">${photos
+              .slice(0, 8)
+              .map(
+                u =>
+                  `<img src="${esc(u)}" alt="" loading="lazy" decoding="async">`
+              )
+              .join('')}</div>`
+          : '';
+      parts.push(`<li class="journal-entry-row${expanded ? ' expanded' : ''}" data-entry-id="${esc(eid)}">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;">
+          <button type="button" class="journal-entry-line" onclick="toggleJournalEntryExpand('${esc(eid)}')" aria-expanded="${expanded}">
+            <span class="journal-entry-date">${esc(dlab)}</span>
+            <span class="journal-entry-loc">${esc(loc)}</span>
+          </button>
+          <div class="journal-entry-actions" onclick="event.stopPropagation()">
+            <button type="button" title="Modifier" aria-label="Modifier" onclick="editJournalEntry(event, '${esc(eid)}')">✏️</button>
+            <button type="button" class="journal-entry-del" title="Supprimer" aria-label="Supprimer" onclick="deleteJournalEntry(event, '${esc(eid)}')">🗑️</button>
+          </div>
+        </div>
+        <div class="journal-entry-read">
+          ${esc(String(e.texte || '').trim() || '—')}
+          ${thumbs}
+        </div>
+      </li>`);
+    }
+    parts.push(`</ul></div>`);
+  }
+  container.innerHTML = parts.join('');
+}
+
+function toggleJournalEntryExpand(entryId) {
+  const id = String(entryId || '');
+  journalExpandedEntryId = journalExpandedEntryId === id ? null : id;
+  renderJournalEntriesList();
+}
+
+async function editJournalEntry(ev, entryId) {
+  ev?.stopPropagation?.();
+  const id = String(entryId || '');
+  let row = journalEntriesCache.find(r => String(r.id) === id);
+  if (!row) {
+    await refreshJournalEntriesFromSupabase();
+    row = journalEntriesCache.find(r => String(r.id) === id);
+  }
+  if (!row) {
+    toast('Entrée introuvable');
+    return;
+  }
+  journalEditingEntryId = id;
+  journalExpandedEntryId = null;
+
+  await fetchVoyagesFromSupabase();
+  populateJournalVoyageSelect();
+
+  const sel = document.getElementById('journal-voyage-select');
+  if (sel && row.voyage_id) {
+    sel.value = String(row.voyage_id);
+    if ([...sel.options].some(o => o.value === String(row.voyage_id)))
+      persistLastVoyageId(String(row.voyage_id));
+  }
+  onJournalVoyageSelectChange();
+
+  if (typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+    journalEntryDateISO = row.date;
+    setJournalDateDisplay(
+      new Date(`${row.date}T12:00:00`).toLocaleDateString('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      })
+    );
+  }
+
+  clearLocation();
+  const dest = String(row.destination || '').trim();
+  if (dest) {
+    currentDest = dest;
+    currentDestShort = dest.split(',')[0]?.trim() || dest;
+    currentLat = typeof row.lat === 'number' ? row.lat : row.lat != null ? parseFloat(row.lat) : null;
+    currentLng = typeof row.lng === 'number' ? row.lng : row.lng != null ? parseFloat(row.lng) : null;
+    if (Number.isFinite(currentLat) && Number.isFinite(currentLng)) applySelectedState();
+    else {
+      document.getElementById('loc-search-state').style.display = 'none';
+      document.getElementById('loc-selected-state').style.display = 'block';
+      document.getElementById('loc-selected-name').textContent = currentDestShort;
+      document.getElementById('loc-selected-coords').textContent = 'Saisie enregistrée';
+      document.getElementById('mini-map').innerHTML =
+        `<div class="mini-map-placeholder">Carte — reprends la localisation si besoin</div>`;
+    }
+  } else clearLocation();
+
+  const body = document.getElementById('journal-body');
+  if (body) body.value = row.texte || '';
+  currentPhotos = coercePhotosUrls(row.photos ?? []);
+  renderPhotoGrid();
+
+  renderJournalEntriesList();
+  switchTab('journal', { skipJournalReset: true });
+  document.getElementById('journal-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function deleteJournalEntry(ev, entryId) {
+  ev?.stopPropagation?.();
+  const id = String(entryId || '');
+  if (!id || !confirm('Supprimer cette entrée du journal ?')) return;
+
+  const row = journalEntriesCache.find(r => String(r.id) === id);
+  const vid = row?.voyage_id != null ? String(row.voyage_id) : '';
+
+  try {
+    const { error } = await supabase.from('journal_entries').delete().eq('id', id);
+    if (error) throw error;
+  } catch (e) {
+    console.error(e);
+    toast('Suppression impossible');
+    return;
+  }
+
+  if (journalEditingEntryId != null && String(journalEditingEntryId) === String(id)) {
+    journalEditingEntryId = null;
+    resetJournalForm({ keepVoyageList: true });
+  }
+  journalExpandedEntryId = null;
+
+  await refreshJournalEntriesFromSupabase();
+  renderJournalEntriesList();
+
+  if (!vid) {
+    toast('Entrée supprimée');
+    return;
+  }
+
+  toast('✨ Mise à jour de la fiche voyage…', { loading: true, persist: true });
+  try {
+    const { data: rest } = await supabase.from('journal_entries').select('id').eq('voyage_id', vid).limit(1);
+    const hasMore = Array.isArray(rest) && rest.length > 0;
+    if (hasMore) await analyseJournalEtMettreAJourFiche(vid);
+    else await supabase.from('fiches').delete().eq('voyage_id', vid);
+    toastDismiss();
+    toast(hasMore ? 'Fiche mise à jour' : 'Entrée supprimée (fiche vide retirée)');
+    await refreshFichesFromSupabase();
+    renderFicheList();
+  } catch (e) {
+    console.error(e);
+    toastDismiss();
+    toast(`Entrée supprimée — ${e instanceof Error ? e.message : String(e)}`);
+    try {
+      await refreshFichesFromSupabase();
+      renderFicheList();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function ficheDisplayTitle(f) {
+  if (!f) return 'Sans titre';
+  const t = String(f.voyageNom || '').trim();
+  if (t) return t;
+  return String(f.dest || 'Sans titre').trim() || 'Sans titre';
+}
+
+function ficheCitiesSubtitle(f) {
+  const arr = coerceJsonArray(f?.villes).filter(Boolean);
+  if (!arr.length) return '';
+  return arr.map(x => String(x).trim()).filter(Boolean).join(' · ');
+}
+
+/** Libellé pour résolution du drapeau (destination principale / première ville). */
+function primaryLabelForFicheFlag(f) {
+  if (!f) return '';
+  const v0 = coerceJsonArray(f.villes).find(Boolean);
+  if (v0) return String(v0);
+  return String(f.dest || '').trim();
+}
+
+// ══════════════════════════════════════
 // INIT
 // ══════════════════════════════════════
 function initPhotoDropZone() {
@@ -233,6 +633,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.warn('Shared fiche parse error:', e);
     }
   }
+
+  await fetchVoyagesFromSupabase();
+  populateJournalVoyageSelect();
+  await refreshJournalEntriesFromSupabase();
+  renderJournalEntriesList();
 
   applyBrowserJournalDate();
   renderPhotoGrid();
@@ -305,6 +710,21 @@ function switchTab(tab, options = {}) {
   if (!toJournal && !skipDetailReset) {
     clearDetailSelectionAndDom();
     hideDetailOverlayIfVisible();
+  }
+
+  if (toJournal) {
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          await fetchVoyagesFromSupabase();
+          populateJournalVoyageSelect();
+          await refreshJournalEntriesFromSupabase();
+          renderJournalEntriesList();
+        } catch (e) {
+          console.warn(e);
+        }
+      })();
+    });
   }
 
   const tj = document.getElementById('tab-journal');
@@ -409,7 +829,7 @@ function scheduleDetailCountryFlag(f) {
   (async () => {
     let url = null;
     try {
-      url = await resolveCircleFlagSvgUrl(f.dest || '', f.countryCode || '');
+      url = await resolveCircleFlagSvgUrl(primaryLabelForFicheFlag(f) || f.dest || '', f.countryCode || '');
     } catch {
       /* silence */
     }
@@ -456,10 +876,14 @@ function renderFicheDetail(idx) {
     notes = `<div class="detail-notes"><div class="detail-section-title">Notes</div><div>${escHtml(f.notes).replace(/\n/g, '<br>')}</div></div>`;
   }
 
+  const detailTitle = ficheDisplayTitle(f);
+  const citiesLine = ficheCitiesSubtitle(f);
+
   el.innerHTML = `
     <header class="detail-head">
       <div id="detail-flag-wrap" class="detail-flag-wrap" aria-hidden="true"></div>
-      <h1 class="detail-h1">${escHtml(f.dest || 'Sans titre')}</h1>
+      <h1 class="detail-h1">${escHtml(detailTitle)}</h1>
+      ${citiesLine ? `<p class="detail-cities">${escHtml(citiesLine)}</p>` : ''}
       <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
     </header>
     ${listBlock('Hébergement', f.hotels)}
@@ -544,8 +968,15 @@ function buildShareLines(dest, mois, annee, url) {
 function buildSharePayloadFromSavedFiche(f) {
   if (!f) return buildSharePayloadFallback();
   const url = makeFicheShareUrl(f);
-  const title = `Fiche voyage — ${f.dest || 'Sans titre'}`;
-  const text = buildShareLines(f.dest, f.mois, f.annee, url);
+  const display = ficheDisplayTitle(f);
+  const cities = ficheCitiesSubtitle(f);
+  const title = `Fiche voyage — ${display}`;
+  const lines = ['Découvre cette fiche sur Le travel book de chachou.', '', display];
+  if (cities) lines.push(cities);
+  const period = [f.mois, f.annee].filter(Boolean).join(' ');
+  if (period) lines.push(`Période : ${period}`);
+  lines.push('', url);
+  const text = lines.join('\n');
   return { url, title, text };
 }
 
@@ -1034,7 +1465,11 @@ function removePhoto(i) {
 // JOURNAL — saisie quotidienne & Claude → fiches
 // ══════════════════════════════════════
 
-function resetJournalForm() {
+function resetJournalForm(options = {}) {
+  const { keepVoyageList = false, skipDateReset = false } = options;
+  journalEditingEntryId = null;
+  journalExpandedEntryId = null;
+
   currentDest = '';
   currentDestShort = '';
   currentCountryCode = '';
@@ -1047,7 +1482,7 @@ function resetJournalForm() {
   document.getElementById('loc-input').value = '';
   closeDropdown();
 
-  void refreshJournalDisplayedDate();
+  if (!skipDateReset) void refreshJournalDisplayedDate();
 
   const body = document.getElementById('journal-body');
   if (body) body.value = '';
@@ -1055,13 +1490,31 @@ function resetJournalForm() {
   renderPhotoGrid();
 
   document.querySelectorAll('#tab-journal .shared-banner, #shared-banner').forEach(el => el.remove());
+
+  if (!keepVoyageList) {
+    void (async () => {
+      await fetchVoyagesFromSupabase();
+      populateJournalVoyageSelect();
+      await refreshJournalEntriesFromSupabase();
+      renderJournalEntriesList();
+    })();
+  } else {
+    renderJournalEntriesList();
+  }
 }
 
 function newJournalEntry() {
-  resetJournalForm();
+  journalEditingEntryId = null;
+  journalExpandedEntryId = null;
+  resetJournalForm({ keepVoyageList: true });
   switchTab('journal', { skipJournalReset: true });
-  const sc = document.querySelector('#editorView .editor-scroll');
-  if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
+  void fetchVoyagesFromSupabase()
+    .then(() => {
+      populateJournalVoyageSelect();
+      onJournalVoyageSelectChange();
+    })
+    .catch(() => {});
+  document.getElementById('journal-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function mergeUniqueNormalized(base, additions) {
@@ -1122,6 +1575,7 @@ function extractAnthropicJson(data) {
   } catch {
     return {
       dest: '',
+      villes: [],
       hotels: [],
       restaurants: [],
       lieux: [],
@@ -1139,90 +1593,66 @@ function anthropicRequestHeaders() {
   return { 'Content-Type': 'application/json' };
 }
 
-/** Fiche existante dont le champ `dest` contient le pays (ex. « France » dans « Bordeaux, France »). */
-async function fetchFicheByPays(destRef) {
-  const pays =
-    extractCountry(destRef || '').trim() || String(destRef || '').trim();
-  if (!pays) return null;
-  const { data, error } = await supabase
-    .from('fiches')
-    .select('*')
-    .ilike('dest', `%${pays}%`)
-    .limit(1);
-  if (error) {
-    console.warn('[fiches] ilike', error);
-    return null;
-  }
-  return Array.isArray(data) && data[0] ? data[0] : null;
-}
-
-async function analyseJournalEtMettreAJourFiche(destinationNorm, fallbackRows = null) {
-  const destLookup = destinationNorm.trim();
-  console.log('[analyseJournal] 🚀 Début', { destLookup, fallbackCount: fallbackRows?.length ?? 0 });
-  if (!destLookup) {
-    console.warn('[analyseJournal] destination vide, abandon.');
+async function analyseJournalEtMettreAJourFiche(voyageId, fallbackRows = null) {
+  const vid = String(voyageId || '').trim();
+  if (!vid) {
+    console.warn('[analyseJournal] voyage_id vide, abandon.');
     return;
   }
 
   const { data: entries, error: fetchErr } = await supabase
     .from('journal_entries')
     .select('*')
-    .eq('destination', destLookup)
+    .eq('voyage_id', vid)
     .order('date', { ascending: true });
 
-  if (fetchErr) console.error('[analyseJournal] 📚 FETCH erreur:', fetchErr);
-  console.log('[analyseJournal] 📚 FETCH résultat', {
-    nb: Array.isArray(entries) ? entries.length : -1,
-    rows: journalRowsLiteForLog(entries)
-  });
-
+  if (fetchErr) console.error('[analyseJournal] FETCH erreur:', fetchErr);
   if (fetchErr) throw fetchErr;
 
   let rows = Array.isArray(entries) ? [...entries] : [];
 
   if (rows.length === 0 && Array.isArray(fallbackRows) && fallbackRows.length) {
     console.warn(
-      '[analyseJournal] ⚠️ SELECT = 0 ligne — utilisation données client (cause fréquente : RLS lecture sur journal_entries).'
+      '[analyseJournal] SELECT = 0 ligne — utilisation données client (RLS lecture sur journal_entries ?).'
     );
     rows = [...fallbackRows];
   }
 
   if (rows.length === 0) {
-    console.error('[analyseJournal] ❌ Aucune ligne à analyser', { destLookup });
+    console.error('[analyseJournal] Aucune ligne à analyser', { vid });
     throw new Error(
-      'Aucune entrée journal lisible pour cette destination — vérifie la politique RLS SELECT sur `journal_entries`.'
+      'Aucune entrée journal lisible pour ce voyage — vérifie la politique RLS SELECT sur journal_entries.'
     );
   }
 
   const payloadClaude = rows.map(r => ({
-    destination: r.destination,
+    destination: r.destination ?? '',
     date: r.date,
     texte: r.texte ?? '',
     lat: r.lat ?? null,
     lng: r.lng ?? null
   }));
 
-  const systemPrompt = `Tu es un assistant voyage. Analyse ces entrées de journal et extrais les informations.
+  const systemPrompt = `Tu es un assistant voyage. Analyse ces entrées de journal d'un même voyage et extrais les informations.
 Réponds UNIQUEMENT en JSON valide sans markdown ni backticks :
 {
-  "dest": "Ville, Pays",
-  "hotels": ["hotel1"],
-  "restaurants": ["resto1"],
-  "lieux": ["lieu1"],
+  "dest": "Nom du voyage ou destination principale",
+  "villes": ["Paris", "Munich", "Istanbul"],
+  "hotels": ["hotel1", "hotel2"],
+  "restaurants": ["resto1", "resto2"],
+  "lieux": ["lieu1", "lieu2"],
   "boutiques": ["boutique1"],
-  "notes": "Synthèse courte des impressions"
+  "notes": "Synthèse narrative du voyage en 2-3 phrases"
 }
-Ne duplique pas les éléments. Fusionne intelligemment.`;
+Ne duplique pas les éléments. Fusionne intelligemment toutes les journées.`;
 
   const url = anthropicMessagesUrl();
-  console.log('[analyseJournal] 🤖 Appel', url);
-
   const resp = await fetch(url, {
     method: 'POST',
     headers: anthropicRequestHeaders(),
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
+      max_tokens: 1200,
       system: systemPrompt,
       messages: [{ role: 'user', content: JSON.stringify(payloadClaude) }]
     })
@@ -1234,31 +1664,28 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
   try {
     data = raw ? JSON.parse(raw) : {};
   } catch {
-    console.error('[analyseJournal] ❌ Corps non-JSON (HTML build ?)', raw.slice(0, 400));
+    console.error('[analyseJournal] Corps non-JSON (HTML build ?)', raw.slice(0, 400));
     throw new Error('Réponse du proxy Claude invalide (vérifie /api/claude sur Vercel).');
   }
-
-  console.log('[analyseJournal] 📡 Claude HTTP', resp.status);
 
   if (!resp.ok) {
     const msg =
       typeof data?.error?.message === 'string'
         ? data.error.message
         : resp.statusText || 'Anthropic erreur';
-    console.error('[analyseJournal] ❌ API erreur:', msg, data);
+    console.error('[analyseJournal] API erreur:', msg, data);
     throw new Error(msg);
   }
 
   if (!Array.isArray(data.content)) {
-    console.error('[analyseJournal] ❌ Réponse Anthropic sans content[]', data);
+    console.error('[analyseJournal] Réponse Anthropic sans content[]', data);
     throw new Error('Réponse Claude inattendue (pas de content).');
   }
 
   const json = extractAnthropicJson(data);
-  console.log('[analyseJournal] 📋 Synthèse extraite:', json);
+  if (!Array.isArray(json.villes)) json.villes = [];
 
-  const destForFiche =
-    typeof json.dest === 'string' && json.dest.trim() ? json.dest.trim() : destLookup;
+  const destForFiche = typeof json.dest === 'string' && json.dest.trim() ? json.dest.trim() : '';
 
   const first = rows[0];
   const d0 =
@@ -1267,56 +1694,69 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
       : new Date();
   const mois = d0.toLocaleDateString('fr-FR', { month: 'long' });
   const annee = String(d0.getFullYear());
-  const savedLabel = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const savedLabel = new Date().toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
 
-  const paysRef = extractCountry(destForFiche || destLookup) || extractCountry(destLookup) || destLookup;
-  let ficheExistante =
-    (await fetchFicheByPays(paysRef)) || (await fetchFicheByPays(destLookup));
+  const { data: ficheExistante, error: ficheLookupErr } = await supabase
+    .from('fiches')
+    .select('*')
+    .eq('voyage_id', vid)
+    .maybeSingle();
+
+  if (ficheLookupErr) console.warn('[fiches] lookup voyage_id', ficheLookupErr);
 
   const journalPhotoUrls = collectJournalPhotosFromEntries(rows);
+  const villesArr = coerceJsonArray(json.villes).filter(Boolean);
 
+  const primaryPlace = villesArr[0] || destForFiche;
   const metaCountry =
-    extractCountry(destForFiche || destLookup || '')
-      ? isoFromCountryName(extractCountry(destForFiche || destLookup || '')) || ''
-      : '';
+    extractCountry(destForFiche) ||
+    extractCountry(primaryPlace) ||
+    extractCountry(String(primaryPlace || '').split(/[·•]/)[0]?.trim() || '');
   const countryGuess =
-    metaCountry ||
+    (metaCountry ? isoFromCountryName(metaCountry) : '') ||
+    isoFromCountryName(extractCountry(primaryPlace)) ||
     currentCountryCode ||
-    (extractCountry(destForFiche || '') ? isoFromCountryName(extractCountry(destForFiche)) || '' : '');
+    '';
 
-  if (ficheExistante) {
-    console.log('[analyseJournal] 🗂️ Fiche existante id=', ficheExistante.id);
+  if (ficheExistante?.id) {
     const app = rowToApp(ficheExistante);
     const merged = {
-      dest: destForFiche || app.dest || destLookup,
+      voyage_id: vid,
+      dest: destForFiche || app.dest,
       lat: app.lat ?? first?.lat ?? null,
       lng: app.lng ?? first?.lng ?? null,
       mois: app.mois || mois,
       annee: app.annee || annee,
-      hotels: mergeUniqueNormalized(app.hotels, coerceJsonArray(json.hotels)),
-      restaurants: mergeUniqueNormalized(app.restaurants, coerceJsonArray(json.restaurants)),
-      lieux: mergeUniqueNormalized(app.lieux, coerceJsonArray(json.lieux)),
-      boutiques: mergeUniqueNormalized(app.boutiques, coerceJsonArray(json.boutiques)),
+      hotels: coerceJsonArray(json.hotels),
+      restaurants: coerceJsonArray(json.restaurants),
+      lieux: coerceJsonArray(json.lieux),
+      boutiques: coerceJsonArray(json.boutiques),
       notes: typeof json.notes === 'string' ? json.notes : app.notes || '',
       photos: mergeUniqueNormalized(coercePhotosUrls(app.photos), journalPhotoUrls),
-      destShort: app.destShort || (destForFiche || destLookup).split(',')[0]?.trim() || '',
-      countryCode:
-        app.countryCode ||
-        (typeof countryGuess === 'string' ? countryGuess : '') ||
-        (typeof metaCountry === 'string' ? metaCountry : ''),
+      destShort:
+        app.destShort ||
+        String(primaryPlace).split(',')[0]?.trim() ||
+        destForFiche.split(',')[0]?.trim() ||
+        '',
+      villes: villesArr,
+      countryCode: app.countryCode || countryGuess || '',
       savedAt: savedLabel
     };
     const payload = buildDbPayload(merged);
     const { error: upErr } = await supabase.from('fiches').update(payload).eq('id', ficheExistante.id);
     if (upErr) {
-      console.error('[analyseJournal] ✏️ update fiches:', upErr);
+      console.error('[analyseJournal] update fiches:', upErr);
       throw upErr;
     }
-    console.log('[analyseJournal] ✏️ Fiche mise à jour OK');
     return;
   }
 
   const ins = buildDbPayload({
+    voyage_id: vid,
     dest: destForFiche,
     lat: first?.lat ?? null,
     lng: first?.lng ?? null,
@@ -1328,32 +1768,37 @@ Ne duplique pas les éléments. Fusionne intelligemment.`;
     boutiques: coerceJsonArray(json.boutiques),
     notes: typeof json.notes === 'string' ? json.notes : '',
     photos: journalPhotoUrls,
-    destShort: destForFiche.split(',')[0]?.trim() || destForFiche,
-    countryCode: typeof countryGuess === 'string' ? countryGuess : '',
+    destShort:
+      String(primaryPlace).split(',')[0]?.trim() || destForFiche.split(',')[0]?.trim() || '',
+    villes: villesArr,
+    countryCode: countryGuess,
     savedAt: savedLabel
   });
 
   const { error: insErr } = await supabase.from('fiches').insert(ins);
   if (insErr) {
-    console.error('[analyseJournal] 🆕 insert fiches:', insErr);
+    console.error('[analyseJournal] insert fiches:', insErr);
     throw insErr;
   }
-  console.log('[analyseJournal] 🆕 Fiche créée OK');
 }
 
 async function saveJournalEntry() {
-  const destTrim = getJournalDestinationTrimmed();
+  const voyageId = getSelectedVoyageIdFromForm();
+  if (!voyageId) {
+    toast('Choisis un voyage pour cette entrée (ou crée-en un).');
+    return;
+  }
+
+  const destTrim = getJournalDestinationTrimmed() || '';
 
   if (import.meta.env.DEV) {
+    console.log('voyage_id:', voyageId);
     console.log('destination:', destTrim);
     console.log('lat:', currentLat);
     console.log('lng:', currentLng);
   }
 
-  if (!destTrim) {
-    toast('Choisis une destination pour cette entrée.');
-    return;
-  }
+  persistLastVoyageId(voyageId);
 
   const entry_date = (journalEntryDateISO || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) {
@@ -1365,7 +1810,8 @@ async function saveJournalEntry() {
   const photos = coercePhotosUrls(currentPhotos);
 
   const rowPayload = {
-    destination: destTrim,
+    voyage_id: voyageId,
+    destination: destTrim || '',
     lat: currentLat ?? null,
     lng: currentLng ?? null,
     date: entry_date,
@@ -1373,28 +1819,40 @@ async function saveJournalEntry() {
     photos
   };
 
+  const isEdit = journalEditingEntryId != null;
+  const editingId = isEdit ? String(journalEditingEntryId) : '';
+
   try {
-    const { error } = await supabase.from('journal_entries').insert(rowPayload);
-    if (error) throw error;
+    if (isEdit) {
+      const { error } = await supabase.from('journal_entries').update(rowPayload).eq('id', editingId);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('journal_entries').insert(rowPayload);
+      if (error) throw error;
+    }
   } catch (e) {
     console.error(e);
-    toast("Impossible d’enregistrer le journal — vérifie les colonnes Supabase.");
+    toast("Impossible d'enregistrer le journal — vérifie les colonnes Supabase (voyage_id…).");
     return;
   }
+
+  journalEditingEntryId = null;
 
   toast('✨ Analyse de ta journée en cours...', { loading: true, persist: true });
 
   try {
-    console.log('[saveJournal] ✅ Insert OK — lancement analyse Claude + fiche…', {
-      destination: destTrim
-    });
-    await analyseJournalEtMettreAJourFiche(destTrim, [rowPayload]);
+    await analyseJournalEtMettreAJourFiche(voyageId, [{ ...rowPayload, voyage_id: voyageId }]);
     toastDismiss();
     toast('✨ Fiche mise à jour !');
     await refreshFichesFromSupabase();
     renderFicheList();
+    await refreshJournalEntriesFromSupabase();
+    renderJournalEntriesList();
+    resetJournalForm({ keepVoyageList: true, skipDateReset: false });
+    populateJournalVoyageSelect();
+    onJournalVoyageSelectChange();
   } catch (e) {
-    console.error('[saveJournal + analyse] ❌', e);
+    console.error('[saveJournal + analyse]', e);
     toastDismiss();
     toast(
       `Journal sauvegardé. Analyse ou fiche — ${e instanceof Error ? e.message : String(e)}`,
@@ -1405,6 +1863,8 @@ async function saveJournalEntry() {
     try {
       await refreshFichesFromSupabase();
       renderFicheList();
+      await refreshJournalEntriesFromSupabase();
+      renderJournalEntriesList();
     } catch {
       /* silence */
     }
@@ -1423,7 +1883,7 @@ async function scheduleFicheListFlags(renderGen) {
       if (!f) return;
       let url = null;
       try {
-        url = await resolveCircleFlagSvgUrl(f.dest || '', f.countryCode || '');
+        url = await resolveCircleFlagSvgUrl(primaryLabelForFicheFlag(f) || f.dest || '', f.countryCode || '');
       } catch {
         /* silence */
       }
@@ -1433,11 +1893,6 @@ async function scheduleFicheListFlags(renderGen) {
         `<img src="${escHtml(url)}" alt="" width="32" height="32" loading="lazy" decoding="async" class="fiche-flag-img" referrerpolicy="no-referrer">`;
     })
   );
-}
-
-function ficheListCountryLabel(f) {
-  const p = extractCountry(f?.dest || '');
-  return p && String(p).trim() ? String(p).trim() : 'Sans pays';
 }
 
 function renderFicheList() {
@@ -1452,26 +1907,18 @@ function renderFicheList() {
     return;
   }
 
-  const byCountry = new Map();
-  fiches.forEach((f, i) => {
-    if (!f) return;
-    const label = ficheListCountryLabel(f);
-    if (!byCountry.has(label)) byCountry.set(label, []);
-    byCountry.get(label).push({ f, idx: i });
-  });
-
-  const countries = [...byCountry.keys()].sort((a, b) =>
-    a.localeCompare(b, 'fr', { sensitivity: 'base' })
-  );
-
-  const cardHtml = (f, i) => `
+  const cardHtml = (f, i) => {
+    const title = ficheDisplayTitle(f);
+    const cities = ficheCitiesSubtitle(f);
+    return `
     <div class="fiche-card" role="button" tabindex="0" onclick="openFicheDetail(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFicheDetail(${i});}">
       <div class="fiche-card-body">
         <div class="fiche-card-title-row">
           <div class="fiche-card-flag-slot" data-fiche-idx="${i}" aria-hidden="true"></div>
-          <div class="fiche-card-dest">${escHtml(f.dest || 'Destination inconnue')}</div>
+          <div class="fiche-card-dest">${escHtml(title)}</div>
         </div>
+        ${cities ? `<p class="fiche-card-cities">${escHtml(cities)}</p>` : ''}
         <div class="fiche-card-meta">${escHtml([f.mois, f.annee].filter(Boolean).join(' · '))}</div>
         <div class="fiche-card-stats">
           <div class="fiche-stat">
@@ -1498,12 +1945,9 @@ function renderFicheList() {
         </div>
       </div>
     </div>`;
+  };
 
-  const parts = [];
-  for (const c of countries) {
-    parts.push(`<h2 class="fiche-country-title">${escHtml(c)}</h2>`);
-    for (const { f, idx } of byCountry.get(c)) parts.push(cardHtml(f, idx));
-  }
+  const parts = fiches.map((f, idx) => cardHtml(f, idx));
 
   const gen = ++_ficheListFlagGen;
   container.innerHTML = parts.join('');
@@ -1512,7 +1956,7 @@ function renderFicheList() {
 async function deleteFiche(i) {
   const f = fiches[i];
   if (!f?.id) return;
-  if (!confirm(`Supprimer la fiche "${f.dest}" ?`)) return;
+  if (!confirm(`Supprimer la fiche « ${ficheDisplayTitle(f)} » ?`)) return;
   try {
     const { error } = await supabase.from('fiches').delete().eq('id', f.id);
     if (error) throw error;
@@ -1556,7 +2000,7 @@ function showSharedFiche(fiche) {
   const banner = document.createElement('div');
   banner.id = 'shared-banner';
   banner.className = 'shared-banner';
-  const titre = escHtml(fiche?.dest || 'Fiche reçue');
+  const titre = escHtml(ficheDisplayTitle(fiche));
   banner.innerHTML = `
     <div class="shared-banner-title">✦ Fiche partagée — ${titre}</div>
     <div class="shared-banner-actions">
@@ -1631,6 +2075,7 @@ function importJSON(input) {
           annee: raw.annee || '',
           destShort: raw.destShort,
           countryCode: raw.countryCode,
+          villes: coerceJsonArray(raw.villes),
           savedAt: raw.savedAt || raw.saved_at
         });
         const { error } = await supabase.from('fiches').insert(payload);
@@ -1698,9 +2143,10 @@ async function generatePDF(fiche) {
     doc.text(moisAnnee, W - ML - doc.getTextWidth(moisAnnee), 12);
   }
 
-  let ville = fiche.dest || '', pays = '';
-  const ci2 = ville.indexOf(',');
-  if (ci2 > -1) { pays = ville.substring(ci2 + 1).trim(); ville = ville.substring(0, ci2).trim(); }
+  const coverTitle = ficheDisplayTitle(fiche);
+  const citiesLine = ficheCitiesSubtitle(fiche);
+  let ville = coverTitle;
+  let pays = String(extractCountry(fiche.dest || '') || '').trim();
 
   doc.setFont('times', 'italic');
   doc.setFontSize(36);
@@ -1712,6 +2158,13 @@ async function generatePDF(fiche) {
     doc.setFontSize(20);
     doc.setTextColor(...C.goldLight);
     doc.text(`, ${pays}`, ML + vw + 1, 42);
+  }
+
+  if (citiesLine) {
+    doc.setFont('times', 'italic');
+    doc.setFontSize(11);
+    doc.setTextColor(...C.goldLight);
+    doc.text(citiesLine, ML, pays ? 52 : 50);
   }
 
   if (moisAnnee) {
@@ -1841,7 +2294,7 @@ async function generatePDF(fiche) {
     doc.setFontSize(7);
     doc.setTextColor(175, 170, 163);
 
-    doc.text((fiche.dest || '').toUpperCase(), ML, fy);
+    doc.text(ficheDisplayTitle(fiche).toUpperCase(), ML, fy);
 
     const period = [fiche.mois, fiche.annee].filter(Boolean).join(' ').toUpperCase();
     if (period) doc.text(period, W - ML - doc.getTextWidth(period), fy);
@@ -1850,7 +2303,7 @@ async function generatePDF(fiche) {
     doc.text(pg, W / 2 - doc.getTextWidth(pg) / 2, fy);
   }
 
-  const slug = (fiche.dest || 'voyage').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+  const slug = (ficheDisplayTitle(fiche) || fiche.dest || 'voyage').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
   doc.save(`travel-book-chachou-${slug}-${fiche.annee || 'voyage'}.pdf`);
   toast('PDF téléchargé !');
 }
@@ -1892,6 +2345,11 @@ Object.assign(window, {
   dismissSharedBannerAndJournal,
   saveJournalEntry,
   newJournalEntry,
+  onJournalVoyageSelectChange,
+  createVoyageFromJournalInput,
+  toggleJournalEntryExpand,
+  editJournalEntry,
+  deleteJournalEntry,
   onLocInput,
   onPhotoFiles,
   searchLocation

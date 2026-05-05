@@ -2047,6 +2047,219 @@
       padding: 14px 14px 10px;
     }
 
+    .section-label-hint {
+      font-size: 0.75rem;
+      font-weight: 400;
+      font-style: italic;
+      color: var(--muted);
+    }
+
+    .journal-new-entry-top {
+      margin-bottom: 1.25rem;
+    }
+
+    .journal-btn-new-top {
+      width: 100%;
+      max-width: none;
+    }
+
+    .journal-voyage-select {
+      width: 100%;
+      padding: 12px 36px 12px 14px;
+      border: 1px solid rgba(91, 143, 168, 0.52);
+      border-radius: var(--radius-lg);
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      color: var(--ink);
+      background-color: var(--input-fill);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235B8FA8' stroke-width='1.2'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      outline: none;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    .journal-voyage-select:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px var(--gold-soft);
+    }
+
+    .journal-new-voyage-block {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: var(--radius-lg);
+      border: 1px dashed var(--border);
+      background: rgba(240, 235, 224, 0.35);
+    }
+
+    .journal-new-voyage-inner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .journal-new-voyage-inner .journal-input {
+      flex: 1 1 200px;
+    }
+
+    .journal-btn-create-voyage {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+
+    .journal-entries-list {
+      margin-bottom: 1.75rem;
+    }
+
+    .journal-voyage-block {
+      margin-bottom: 1.25rem;
+    }
+
+    .journal-voyage-heading {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--marine);
+      margin: 0 0 0.65rem 0;
+      padding: 0 2px;
+      line-height: 1.35;
+    }
+
+    .journal-entry-rows {
+      margin: 0;
+      padding: 0 0 0 1.15rem;
+      list-style: none;
+      border-left: 2px solid rgba(91, 143, 168, 0.35);
+    }
+
+    .journal-entry-row {
+      position: relative;
+      margin-bottom: 0.5rem;
+    }
+
+    .journal-entry-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .journal-entry-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-soft);
+      background: var(--card);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      text-align: left;
+      width: 100%;
+      box-sizing: border-box;
+      font: inherit;
+      color: inherit;
+    }
+
+    .journal-entry-line:hover {
+      border-color: rgba(91, 143, 168, 0.45);
+      background: rgba(240, 235, 224, 0.65);
+    }
+
+    .journal-entry-date {
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .journal-entry-loc {
+      flex: 1 1 auto;
+      font-size: 0.9375rem;
+      color: var(--muted);
+      min-width: 0;
+    }
+
+    .journal-entry-actions {
+      display: inline-flex;
+      gap: 6px;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
+    .journal-entry-actions button {
+      width: auto;
+      min-width: 2.5rem;
+      padding: 6px 10px;
+      font-size: 1rem;
+      line-height: 1;
+      background: transparent;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      color: var(--muted);
+      transition: color .15s, border-color .15s, background .15s;
+    }
+
+    .journal-entry-actions button:hover {
+      color: var(--marine);
+      border-color: rgba(91, 143, 168, 0.45);
+      background: rgba(240, 235, 224, 0.5);
+    }
+
+    .journal-entry-actions button.journal-entry-del:hover {
+      color: var(--red);
+      border-color: rgba(192, 57, 43, 0.4);
+    }
+
+    .journal-entry-read {
+      display: none;
+      margin: 8px 0 10px 0;
+      padding: 12px 14px;
+      border-radius: var(--radius-lg);
+      background: rgba(240, 235, 224, 0.45);
+      border: 1px solid var(--border-soft);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: var(--marine);
+      white-space: pre-wrap;
+    }
+
+    .journal-entry-row.expanded .journal-entry-read {
+      display: block;
+    }
+
+    .journal-entry-photos {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .journal-entry-photos img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border-soft);
+    }
+
+    .fiche-card-cities {
+      font-size: 0.8125rem;
+      color: var(--muted);
+      font-style: italic;
+      font-weight: 400;
+      line-height: 1.4;
+      margin: 0 0 10px 0;
+    }
+
+    .detail-cities {
+      font-size: 0.9375rem;
+      color: var(--gris-bleu);
+      font-style: italic;
+      font-weight: 400;
+      margin: 0 0 0.35rem 0;
+      line-height: 1.4;
+    }
+
     .fiche-country-title {
       font-size: clamp(1.125rem, 2.8vw, 1.375rem);
       font-weight: 700;
@@ -2247,6 +2460,27 @@
         box-sizing: border-box;
       }
 
+      .journal-entry-actions button {
+        width: auto;
+        min-width: 2.5rem;
+        height: auto;
+        min-height: 0;
+        padding: 6px 10px;
+        font-size: 1rem;
+        line-height: 1;
+        box-sizing: border-box;
+      }
+
+      button.journal-entry-line {
+        width: auto;
+        flex: 1 1 auto;
+        min-width: 0;
+        height: auto;
+        min-height: 0;
+        text-align: left;
+        justify-content: flex-start;
+      }
+
       .editor-inner {
         padding-left: 0;
         padding-right: 0;
@@ -2377,10 +2611,32 @@
 
           <header class="article-hero">
             <h1 class="ds-h1">Mon journal</h1>
-            <p class="ds-secondary ds-lead">Une entrée par jour — ta fiche se met à jour toute seule à partir de ce que tu écris.</p>
+            <p class="ds-secondary ds-lead">Une entrée par jour — une fiche par voyage, alimentée par tout le carnet du même voyage.</p>
           </header>
 
-          <div class="article-flow">
+          <div class="journal-new-entry-top">
+            <button type="button" class="btn-new journal-btn-new-top" onclick="newJournalEntry()">+ Nouvelle entrée</button>
+          </div>
+
+          <div id="journal-entries-list" class="journal-entries-list" aria-live="polite"></div>
+
+          <div class="article-flow" id="journal-form-anchor">
+
+          <section class="editor-section" aria-labelledby="h-journal-voyage">
+            <h2 class="section-label" id="h-journal-voyage">Voyage</h2>
+            <div class="journal-voyage-row">
+              <select id="journal-voyage-select" class="journal-voyage-select" aria-labelledby="h-journal-voyage" onchange="onJournalVoyageSelectChange()">
+                <option value="">— Choisir un voyage —</option>
+              </select>
+            </div>
+            <div id="journal-new-voyage-block" class="journal-new-voyage-block" hidden>
+              <label class="ds-secondary" for="journal-new-voyage-input" style="display:block;margin-bottom:6px;">Nom du nouveau voyage</label>
+              <div class="journal-new-voyage-inner">
+                <input type="text" id="journal-new-voyage-input" class="journal-input" placeholder="Ex. Road trip Turquie avec Bertille" autocomplete="off">
+                <button type="button" class="btn-save journal-btn-create-voyage" onclick="createVoyageFromJournalInput()">Créer le voyage</button>
+              </div>
+            </div>
+          </section>
 
           <section class="editor-section" aria-labelledby="h-journal-date">
             <h2 class="section-label" id="h-journal-date">Date</h2>
@@ -2388,7 +2644,7 @@
           </section>
 
           <section class="editor-section" aria-labelledby="h-destination">
-          <h2 class="section-label" id="h-destination">Destination</h2>
+          <h2 class="section-label" id="h-destination">Localisation <span class="section-label-hint">(optionnel)</span></h2>
           <div class="loc-search-wrap" id="loc-wrap">
             <div id="loc-search-state">
               <div class="loc-search-row">
@@ -2451,7 +2707,7 @@
           <div class="form-shell">
           <header class="article-hero tab-list-hero">
             <h1 class="ds-h1">Vos carnets sauvegardés</h1>
-            <p class="ds-secondary ds-lead">Retrouvez chaque destination depuis votre carnet.</p>
+            <p class="ds-secondary ds-lead">Une fiche par voyage — titre du carnet et villes traversées.</p>
           </header>
           <div class="article-flow">
           <div id="fiches-list"></div>
