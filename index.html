@@ -2247,80 +2247,34 @@
       min-width: 100%;
       padding: 18px 16px 20px;
       box-sizing: border-box;
-      position: relative;
     }
 
-    .detail-carousel-slide--editable {
-      padding-top: 48px;
-    }
-
-    .detail-carousel-slide .edit-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: rgba(91, 143, 168, 0.15);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .detail-carousel-date-editable {
       cursor: pointer;
-      border: 1px solid rgba(91, 143, 168, 0.3);
-      transition: all 0.2s;
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      z-index: 2;
-      color: var(--marine);
-      padding: 0;
+      display: inline-block;
+      max-width: 100%;
+      border-bottom: 1px dashed transparent;
+      transition: border-color 0.2s ease;
+      outline: none;
     }
 
-    .detail-carousel-slide .edit-btn:hover {
-      background: rgba(91, 143, 168, 0.3);
-      border-color: var(--bleu-mid);
+    .detail-carousel-date-editable:hover {
+      border-bottom-color: rgba(91, 143, 168, 0.55);
     }
 
-    .detail-carousel-slide-edit-actions {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      z-index: 3;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .detail-carousel-text-editable {
+      cursor: text;
+      border: 1px dashed transparent;
+      border-radius: var(--radius-lg);
+      padding: 8px 10px;
+      margin: 0 -10px;
+      box-sizing: border-box;
+      transition: border-color 0.2s ease;
+      outline: none;
     }
 
-    .detail-carousel-edit-save,
-    .detail-carousel-edit-cancel {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      font-size: 1rem;
-      line-height: 1;
-      padding: 0;
-      transition: opacity 0.2s, transform 0.15s;
-    }
-
-    .detail-carousel-edit-save {
-      border: none;
-      background: var(--marine);
-      color: var(--white);
-    }
-
-    .detail-carousel-edit-save:hover {
-      opacity: 0.92;
-    }
-
-    .detail-carousel-edit-cancel {
-      border: 1px solid rgba(192, 57, 43, 0.35);
-      background: rgba(192, 57, 43, 0.15);
-      color: var(--rouge);
-    }
-
-    .detail-carousel-edit-cancel:hover {
-      background: rgba(192, 57, 43, 0.25);
+    .detail-carousel-text-editable:hover {
+      border-color: rgba(91, 143, 168, 0.4);
     }
 
     .detail-carousel-slide-read {
@@ -2341,14 +2295,6 @@
       color: var(--gris-bleu);
       line-height: 1.35;
       margin: 0 0 14px 0;
-    }
-
-    .detail-carousel-slide-edit-form {
-      margin: 0 0 12px 0;
-    }
-
-    .detail-carousel-slide-edit-form .detail-carousel-slide-date-input {
-      margin-bottom: 12px;
     }
 
     .detail-carousel-body-textarea {
