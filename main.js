@@ -958,7 +958,87 @@ function detailCarouselSlideDateLabel(iso) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
 
-/** Dernières « étapes » pertinentes de la destination (ex. ville, pays), pas l’adresse complète. */
+function journalEntryYmdForPicker(iso) {
+  if (iso == null) return '';
+  if (typeof iso === 'string') {
+    const t = iso.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    if (t.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  }
+  return '';
+}
+
+function detailCarouselOpenDateEditor(btn) {
+  const wrap = btn.closest('.detail-carousel-slide-date-wrap');
+  if (!wrap || wrap.querySelector('input.detail-carousel-slide-date-input')) return;
+  const entryId = btn.getAttribute('data-entry-id');
+  if (!entryId) return;
+
+  let ymd = btn.getAttribute('data-date-iso') || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = isoDateLocal(new Date());
+
+  btn.hidden = true;
+  const inp = document.createElement('input');
+  inp.type = 'date';
+  inp.className = 'detail-carousel-slide-date-input';
+  inp.setAttribute('aria-label', 'Modifier la date');
+  inp.value = ymd;
+  wrap.appendChild(inp);
+
+  let settled = false;
+  const tearDown = () => {
+    if (inp.isConnected) inp.remove();
+    btn.hidden = false;
+  };
+  const finish = async () => {
+    if (settled) return;
+    settled = true;
+    const v = String(inp.value || '').trim();
+    tearDown();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    const prev = btn.getAttribute('data-date-iso') || '';
+    if (v === prev) return;
+
+    try {
+      const { error } = await supabase.from('journal_entries').update({ date: v }).eq('id', entryId);
+      if (error) throw error;
+    } catch (e) {
+      logSupabaseErr('[journal_entries] carousel date', e);
+      toast("Impossible de mettre à jour la date");
+      return;
+    }
+
+    detailCarouselApplyDateResync(entryId, v);
+
+    void (async () => {
+      try {
+        await refreshJournalEntriesFromSupabase();
+        renderJournalEntriesList();
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    toast('Date mise à jour ✦');
+  };
+
+  queueMicrotask(() => {
+    inp.focus();
+    try {
+      inp.showPicker();
+    } catch {
+      /* navigateurs sans showPicker */
+    }
+  });
+
+  inp.addEventListener('change', () => void finish());
+  inp.addEventListener('blur', () => {
+    queueMicrotask(() => {
+      if (!settled) void finish();
+    });
+  });
+}
+
 function detailCarouselShortDestination(raw) {
   const s = String(raw || '').trim();
   if (!s) return '—';
@@ -980,7 +1060,7 @@ function detailCarouselUpdateHead() {
   const loc = detailCarouselShortDestination(r.destination);
   const datePart = dlab ? `${escHtml(dlab)}` : '—';
   const locPart = escHtml(loc);
-  head.innerHTML = `📅 ${datePart} — ${locPart}`;
+  head.innerHTML = `${datePart} — ${locPart}`;
 }
 
 function detailCarouselGoTo(i) {
@@ -1016,6 +1096,14 @@ function initDetailCarouselInteraction() {
   if (!carouselEl || carouselEl.dataset.carouselNavInit === '1') return;
   carouselEl.dataset.carouselNavInit = '1';
 
+  carouselEl.addEventListener('click', ev => {
+    const btn = ev.target.closest('.detail-carousel-slide-date-btn');
+    if (!btn || !carouselEl.contains(btn)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    detailCarouselOpenDateEditor(btn);
+  });
+
   let touchStartX = 0;
   carouselEl.addEventListener(
     'touchstart',
@@ -1050,6 +1138,67 @@ function initDetailCarouselInteraction() {
   );
 }
 
+function detailCarouselSlideHtmlFromRow(r) {
+  const txt = String(r.texte || '').trim() || '—';
+  const photos = coercePhotosUrls(r.photos ?? []);
+  const thumbs =
+    photos.length > 0
+      ? `<div class="detail-carousel-slide-photos">${photos
+          .map(u => `<img src="${escHtml(u)}" alt="" loading="lazy" decoding="async">`)
+          .join('')}</div>`
+      : '';
+  const ymdAttr = journalEntryYmdForPicker(r.date);
+  const dlab = detailCarouselSlideDateLabel(r.date);
+  const eid = r.id != null ? String(r.id) : '';
+  const dateHtml =
+    eid !== ''
+      ? `<div class="detail-carousel-slide-date-wrap">
+        <button type="button" class="detail-carousel-slide-date-btn" data-entry-id="${escHtml(eid)}" data-date-iso="${escHtml(ymdAttr)}">${escHtml(dlab || '—')}</button>
+      </div>`
+      : `<div class="detail-carousel-slide-date-wrap"><span class="detail-carousel-slide-date-static">${escHtml(dlab || '—')}</span></div>`;
+  return `<div class="detail-carousel-slide" role="group" aria-roledescription="slide">
+        ${dateHtml}
+        <p class="detail-carousel-body">${escHtml(txt).replace(/\n/g, '<br>')}</p>
+        ${thumbs}
+      </div>`;
+}
+
+function detailCarouselRebuildDots(activeIdx) {
+  const dotsEl = document.getElementById('detail-carousel-dots');
+  const rows = detailCarouselState.rows;
+  if (!dotsEl || !rows.length) return;
+  const n = rows.length;
+  const a = Math.max(0, Math.min(activeIdx, n - 1));
+  dotsEl.innerHTML = rows
+    .map(
+      (_, di) =>
+        `<span class="detail-carousel-dot${di === a ? ' active' : ''}" role="button" tabindex="0" aria-label="Jour ${
+          di + 1
+        } sur ${n}" aria-current="${di === a ? 'true' : 'false'}" onclick="detailCarouselGoTo(${di})" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); detailCarouselGoTo(${di}); }">${
+          di === a ? '●' : '○'
+        }</span>`
+    )
+    .join('');
+}
+
+function detailCarouselApplyDateResync(entryId, newIso) {
+  const row = detailCarouselState.rows.find(x => String(x.id) === String(entryId));
+  if (row) row.date = newIso;
+  detailCarouselState.rows.sort((a, b) => {
+    const da = journalEntryYmdForPicker(a.date) || '';
+    const db = journalEntryYmdForPicker(b.date) || '';
+    if (da !== db) return da.localeCompare(db);
+    return String(a.id).localeCompare(String(b.id));
+  });
+  const newIdx = detailCarouselState.rows.findIndex(x => String(x.id) === String(entryId));
+  const idx = newIdx >= 0 ? newIdx : detailCarouselState.idx;
+  const track = document.getElementById('detail-carousel-track');
+  if (track) track.innerHTML = detailCarouselState.rows.map(detailCarouselSlideHtmlFromRow).join('');
+  detailCarouselState.count = detailCarouselState.rows.length;
+  detailCarouselRebuildDots(idx);
+  detailCarouselGoTo(idx);
+}
+
 async function mountDetailJournalCarousel(idx, f, opts = {}) {
   const { skipSynth = false } = opts;
   const gen = ++_detailCarouselGen;
@@ -1082,22 +1231,7 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
     return;
   }
 
-  const slidesHtml = rows
-    .map(r => {
-      const txt = String(r.texte || '').trim() || '—';
-      const photos = coercePhotosUrls(r.photos ?? []);
-      const thumbs =
-        photos.length > 0
-          ? `<div class="detail-carousel-slide-photos">${photos
-              .map(u => `<img src="${escHtml(u)}" alt="" loading="lazy" decoding="async">`)
-              .join('')}</div>`
-          : '';
-      return `<div class="detail-carousel-slide" role="group" aria-roledescription="slide">
-        <p class="detail-carousel-body">${escHtml(txt).replace(/\n/g, '<br>')}</p>
-        ${thumbs}
-      </div>`;
-    })
-    .join('');
+  const slidesHtml = rows.map(detailCarouselSlideHtmlFromRow).join('');
 
   const dots = rows
     .map(
