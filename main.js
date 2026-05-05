@@ -998,6 +998,20 @@ function detailCarouselBeginTextEdit(p) {
   queueMicrotask(() => ta.focus());
 }
 
+function detailCarouselUpdateDateLabel() {
+  const label = document.getElementById('detail-carousel-date-label');
+  if (!label) return;
+  const { idx, rows } = detailCarouselState;
+  const r = rows[idx];
+  if (!r) {
+    label.textContent = '';
+    return;
+  }
+  let s = formatDateFR(r.date) || '—';
+  if (s !== '—') s = s.charAt(0).toUpperCase() + s.slice(1);
+  label.textContent = s;
+}
+
 function detailCarouselGoTo(i, opts = {}) {
   const { skipInlineCheck = false } = opts;
   if (!skipInlineCheck && detailCarouselHasInlineField()) return;
@@ -1016,6 +1030,7 @@ function detailCarouselGoTo(i, opts = {}) {
     dot.textContent = on ? '●' : '○';
     dot.setAttribute('aria-current', on ? 'true' : 'false');
   });
+  detailCarouselUpdateDateLabel();
 }
 
 function detailCarouselStep(delta) {
@@ -1194,6 +1209,7 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
     <div class="detail-carousel" id="detail-journal-carousel">
       <div class="detail-carousel-top">
         <button type="button" class="detail-carousel-btn" aria-label="Jour précédent" onclick="detailCarouselStep(-1)">←</button>
+        <span id="detail-carousel-date-label" class="detail-carousel-date-label" aria-live="polite"></span>
         <button type="button" class="detail-carousel-btn" aria-label="Jour suivant" onclick="detailCarouselStep(1)">→</button>
       </div>
       <div class="detail-carousel-viewport" id="detail-carousel-viewport">
@@ -1205,6 +1221,7 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
 
   detailCarouselState = { idx: 0, count: rows.length, rows };
   initDetailCarouselInteraction();
+  detailCarouselUpdateDateLabel();
 }
 
 function renderFicheDetail(idx) {
