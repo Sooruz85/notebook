@@ -952,10 +952,21 @@ async function fetchJournalEntriesForFicheDetail(voyageId) {
 }
 
 function detailCarouselSlideDateLabel(iso) {
-  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const d = new Date(`${iso}T12:00:00`);
+  if (iso == null) return '';
+  let ymd = '';
+  if (typeof iso === 'string') {
+    const t = iso.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) ymd = t;
+    else if (t.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(t)) ymd = t.slice(0, 10);
+  }
+  if (!ymd && iso instanceof Date && !Number.isNaN(iso.getTime())) {
+    const x = iso;
+    ymd = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  }
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T12:00:00`);
   if (Number.isNaN(d.getTime())) return '';
-  return d
+  const s = d
     .toLocaleDateString('fr-FR', {
       weekday: 'long',
       day: 'numeric',
@@ -963,6 +974,20 @@ function detailCarouselSlideDateLabel(iso) {
       year: 'numeric'
     })
     .replace(/\.$/, '');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+}
+
+/** Dernières « étapes » pertinentes de la destination (ex. ville, pays), pas l’adresse complète. */
+function detailCarouselShortDestination(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '—';
+  const parts = s
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return '—';
+  if (parts.length === 1) return parts[0];
+  return parts.slice(-2).join(', ');
 }
 
 function detailCarouselUpdateHead() {
@@ -971,8 +996,10 @@ function detailCarouselUpdateHead() {
   if (!head || !rows[idx]) return;
   const r = rows[idx];
   const dlab = detailCarouselSlideDateLabel(r.date);
-  const loc = String(r.destination || '').trim() || '—';
-  head.innerHTML = `📅 ${escHtml(dlab)} — ${escHtml(loc)}`;
+  const loc = detailCarouselShortDestination(r.destination);
+  const datePart = dlab ? `${escHtml(dlab)}` : '—';
+  const locPart = escHtml(loc);
+  head.innerHTML = `📅 ${datePart} — ${locPart}`;
 }
 
 function detailCarouselGoTo(i) {
@@ -1003,29 +1030,42 @@ function detailCarouselStep(delta) {
   detailCarouselGoTo(n);
 }
 
-function initDetailCarouselSwipe() {
-  const viewport = document.getElementById('detail-carousel-viewport');
-  if (!viewport || viewport.dataset.swipeInit === '1') return;
-  viewport.dataset.swipeInit = '1';
-  let x0 = null;
-  viewport.addEventListener(
+function initDetailCarouselInteraction() {
+  const carouselEl = document.getElementById('detail-journal-carousel');
+  if (!carouselEl || carouselEl.dataset.carouselNavInit === '1') return;
+  carouselEl.dataset.carouselNavInit = '1';
+
+  let touchStartX = 0;
+  carouselEl.addEventListener(
     'touchstart',
     e => {
-      x0 = e.touches[0]?.clientX ?? null;
+      touchStartX = e.touches[0]?.screenX ?? 0;
     },
     { passive: true }
   );
-  viewport.addEventListener(
+  carouselEl.addEventListener(
     'touchend',
     e => {
-      if (x0 == null) return;
-      const x1 = e.changedTouches[0]?.clientX ?? x0;
-      const dx = x1 - x0;
-      x0 = null;
-      if (dx > 60) detailCarouselStep(-1);
-      else if (dx < -60) detailCarouselStep(1);
+      const touchEndX = e.changedTouches[0]?.screenX ?? touchStartX;
+      const diff = touchStartX - touchEndX;
+      if (Math.abs(diff) > 50) {
+        if (diff > 0) detailCarouselStep(1);
+        else detailCarouselStep(-1);
+      }
     },
     { passive: true }
+  );
+
+  carouselEl.addEventListener(
+    'wheel',
+    e => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        if (e.deltaX > 30) detailCarouselStep(1);
+        else if (e.deltaX < -30) detailCarouselStep(-1);
+      }
+    },
+    { passive: false }
   );
 }
 
@@ -1107,7 +1147,7 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
 
   detailCarouselState = { idx: 0, count: rows.length, rows };
   detailCarouselUpdateHead();
-  initDetailCarouselSwipe();
+  initDetailCarouselInteraction();
 }
 
 function renderFicheDetail(idx) {
