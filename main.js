@@ -1763,6 +1763,41 @@ function newJournalEntry() {
   document.getElementById('journal-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/** Mes fiches → journal : nouvelle entrée avec le voyage de la fiche présélectionné. */
+function openJournalForFiche(ficheIdx) {
+  const f = fiches[ficheIdx];
+  if (!f) return;
+  const vid = f.voyage_id != null && f.voyage_id !== '' ? String(f.voyage_id) : '';
+
+  if (vid) persistLastVoyageId(vid);
+
+  journalEditingEntryId = null;
+  journalExpandedEntryId = null;
+  resetJournalForm({ keepVoyageList: true });
+  switchTab('journal', { skipJournalReset: true });
+
+  void fetchVoyagesFromSupabase()
+    .then(() => {
+      populateJournalVoyageSelect();
+      const sel = document.getElementById('journal-voyage-select');
+      if (sel && vid && [...sel.options].some(o => o.value === vid)) {
+        sel.value = vid;
+        onJournalVoyageSelectChange();
+      } else if (vid) {
+        toast('Voyage introuvable — sélectionne-le dans la liste.');
+        onJournalVoyageSelectChange();
+      } else {
+        toast('Cette fiche n’est pas liée à un voyage — choisis un voyage dans la liste.');
+        onJournalVoyageSelectChange();
+      }
+    })
+    .catch(() => {
+      onJournalVoyageSelectChange();
+    });
+
+  document.getElementById('journal-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function mergeUniqueNormalized(base, additions) {
   const out = Array.isArray(base) ? [...base] : [];
   const seen = new Set(out.map(x => String(x).toLowerCase().trim()));
@@ -2192,6 +2227,7 @@ function renderFicheList() {
         </div>
         <div class="fiche-card-actions" onclick="event.stopPropagation()">
           <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); shareFiche(${i})">Partager</button>
+          <button type="button" class="fiche-action-btn" onclick="event.stopPropagation(); openJournalForFiche(${i})">Modifier</button>
           <button type="button" class="fiche-action-btn pdf" onclick="event.stopPropagation(); exportFichePDF(${i})">PDF</button>
           <button type="button" class="fiche-action-btn delete" onclick="event.stopPropagation(); deleteFiche(${i})">Supprimer</button>
         </div>
@@ -2597,6 +2633,7 @@ Object.assign(window, {
   dismissSharedBannerAndJournal,
   saveJournalEntry,
   newJournalEntry,
+  openJournalForFiche,
   openJournalDatePicker,
   onJournalDateInputChange,
   onJournalDateInputBlur,
