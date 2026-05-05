@@ -36,6 +36,7 @@ export default async function handler(req, res) {
 
   const outbound = { ...body, model: ANTHROPIC_MODEL };
 
+  /* Appel serveur uniquement (évite CORS / fuite de clé). Le navigateur doit POST sur /api/claude. */
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

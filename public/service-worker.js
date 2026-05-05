@@ -1,5 +1,5 @@
 /* Offline cache — incrémenter CACHE_NAME après changements majeurs des assets */
-const CACHE_NAME = 'notebook-travel-v1';
+const CACHE_NAME = 'notebook-travel-v2';
 
 const PRECACHE_URLS = [
   '/manifest.json',

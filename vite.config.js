@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
     root: '.',
     publicDir: 'public',
     server: {
+      /* Dev uniquement : équivalent navigateur → POST /api/claude (comme en prod via Vercel). */
       proxy: {
         '/api/claude': {
           target: 'https://api.anthropic.com',

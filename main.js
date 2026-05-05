@@ -172,9 +172,72 @@ function isoDateLocal(d) {
 }
 
 function setJournalDateDisplay(label) {
-  const el = document.getElementById('journal-date-display');
-  if (!el || !label) return;
-  el.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+  const btn = document.getElementById('journal-date-display-btn');
+  if (!btn || !label) return;
+  btn.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function hideJournalDatePickerUi() {
+  const btn = document.getElementById('journal-date-display-btn');
+  const inp = document.getElementById('journal-date-input');
+  if (btn) btn.hidden = false;
+  if (inp) inp.hidden = true;
+}
+
+function openJournalDatePicker() {
+  const btn = document.getElementById('journal-date-display-btn');
+  const inp = document.getElementById('journal-date-input');
+  if (!btn || !inp) return;
+  const iso =
+    journalEntryDateISO && /^\d{4}-\d{2}-\d{2}$/.test(journalEntryDateISO)
+      ? journalEntryDateISO
+      : isoDateLocal(new Date());
+  journalEntryDateISO = iso;
+  inp.value = iso;
+  btn.hidden = true;
+  inp.hidden = false;
+  queueMicrotask(() => {
+    inp.focus();
+    try {
+      inp.showPicker();
+    } catch {
+      /* navigateurs sans showPicker */
+    }
+  });
+}
+
+function applyJournalDateFromInput() {
+  const inp = document.getElementById('journal-date-input');
+  const btn = document.getElementById('journal-date-display-btn');
+  if (!inp || !btn) return;
+  const v = String(inp.value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    hideJournalDatePickerUi();
+    return;
+  }
+  journalEntryDateISO = v;
+  const parsed = new Date(`${v}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    hideJournalDatePickerUi();
+    return;
+  }
+  setJournalDateDisplay(
+    parsed.toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })
+  );
+  hideJournalDatePickerUi();
+}
+
+function onJournalDateInputChange() {
+  applyJournalDateFromInput();
+}
+
+function onJournalDateInputBlur() {
+  applyJournalDateFromInput();
 }
 
 function applyBrowserJournalDate() {
@@ -340,13 +403,24 @@ function getSelectedVoyageIdFromForm() {
   return v;
 }
 
+function logSupabaseErr(ctx, err) {
+  if (!err) return;
+  console.error(ctx, {
+    message: err.message,
+    code: err.code,
+    details: err.details,
+    hint: err.hint
+  });
+}
+
 async function refreshJournalEntriesFromSupabase() {
+  /* Pas de embed voyages(nom) : évite erreur PostgREST si la FK / relation n’est pas exposée. Les noms viennent de voyagesCache. */
   const { data, error } = await supabase
     .from('journal_entries')
-    .select('*, voyages(nom)')
+    .select('*')
     .order('date', { ascending: true });
   if (error) {
-    console.error('[journal_entries]', error);
+    logSupabaseErr('[journal_entries] list error:', error);
     journalEntriesCache = [];
     return;
   }
@@ -464,6 +538,8 @@ async function editJournalEntry(ev, entryId) {
   journalEditingEntryId = id;
   journalExpandedEntryId = null;
 
+  hideJournalDatePickerUi();
+
   await fetchVoyagesFromSupabase();
   populateJournalVoyageSelect();
 
@@ -527,7 +603,7 @@ async function deleteJournalEntry(ev, entryId) {
     const { error } = await supabase.from('journal_entries').delete().eq('id', id);
     if (error) throw error;
   } catch (e) {
-    console.error(e);
+    logSupabaseErr('[journal_entries] delete:', e);
     toast('Suppression impossible');
     return;
   }
@@ -673,6 +749,8 @@ function ensureEditorVisible() {
 function clearDetailSelectionAndDom() {
   detailFicheIdx = null;
   detailFicheId = null;
+  _detailCarouselGen++;
+  detailCarouselState = { idx: 0, count: 0, rows: [] };
   const dc = document.getElementById('detail-content');
   if (dc) dc.innerHTML = '';
   _detailFlagGen++;
@@ -839,6 +917,182 @@ function scheduleDetailCountryFlag(f) {
   })();
 }
 
+let _detailCarouselGen = 0;
+let detailCarouselState = { idx: 0, count: 0, rows: [] };
+
+async function fetchJournalEntriesForFicheDetail(voyageId) {
+  const vid = String(voyageId || '').trim();
+  if (!vid) return [];
+  const { data, error } = await supabase
+    .from('journal_entries')
+    .select('*')
+    .eq('voyage_id', vid)
+    .order('date', { ascending: true });
+  if (error) {
+    logSupabaseErr('[detail carousel] journal_entries:', error);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+function detailCarouselSlideDateLabel(iso) {
+  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d
+    .toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })
+    .replace(/\.$/, '');
+}
+
+function detailCarouselUpdateHead() {
+  const head = document.getElementById('detail-carousel-head');
+  const { idx, rows } = detailCarouselState;
+  if (!head || !rows[idx]) return;
+  const r = rows[idx];
+  const dlab = detailCarouselSlideDateLabel(r.date);
+  const loc = String(r.destination || '').trim() || '—';
+  head.innerHTML = `📅 ${escHtml(dlab)} — ${escHtml(loc)}`;
+}
+
+function detailCarouselGoTo(i) {
+  const { count } = detailCarouselState;
+  if (count <= 0) return;
+  let idx = Number(i);
+  if (!Number.isFinite(idx)) return;
+  if (idx < 0) idx = count - 1;
+  if (idx >= count) idx = 0;
+  detailCarouselState.idx = idx;
+  const track = document.getElementById('detail-carousel-track');
+  if (track) track.style.transform = `translateX(-${idx * 100}%)`;
+  document.querySelectorAll('#detail-carousel-dots .detail-carousel-dot').forEach((dot, di) => {
+    const on = di === idx;
+    dot.classList.toggle('active', on);
+    dot.textContent = on ? '●' : '○';
+    dot.setAttribute('aria-current', on ? 'true' : 'false');
+  });
+  detailCarouselUpdateHead();
+}
+
+function detailCarouselStep(delta) {
+  const { count, idx } = detailCarouselState;
+  if (count <= 0) return;
+  let n = idx + delta;
+  if (n < 0) n = count - 1;
+  if (n >= count) n = 0;
+  detailCarouselGoTo(n);
+}
+
+function initDetailCarouselSwipe() {
+  const viewport = document.getElementById('detail-carousel-viewport');
+  if (!viewport || viewport.dataset.swipeInit === '1') return;
+  viewport.dataset.swipeInit = '1';
+  let x0 = null;
+  viewport.addEventListener(
+    'touchstart',
+    e => {
+      x0 = e.touches[0]?.clientX ?? null;
+    },
+    { passive: true }
+  );
+  viewport.addEventListener(
+    'touchend',
+    e => {
+      if (x0 == null) return;
+      const x1 = e.changedTouches[0]?.clientX ?? x0;
+      const dx = x1 - x0;
+      x0 = null;
+      if (dx > 60) detailCarouselStep(-1);
+      else if (dx < -60) detailCarouselStep(1);
+    },
+    { passive: true }
+  );
+}
+
+async function mountDetailJournalCarousel(idx, f) {
+  const gen = ++_detailCarouselGen;
+  const mount = document.getElementById('detail-journal-carousel-mount');
+  if (!mount) return;
+
+  const rows = await fetchJournalEntriesForFicheDetail(f.voyage_id);
+  if (gen !== _detailCarouselGen) return;
+
+  const synth =
+    f.notes && String(f.notes).trim()
+      ? `<aside class="detail-voyage-synthesis"><div class="detail-section-title">Synthèse du voyage</div><div>${escHtml(
+          String(f.notes).trim()
+        ).replace(/\n/g, '<br>')}</div></aside>`
+      : '';
+
+  const photosFiche = Array.isArray(f.photos) ? f.photos : [];
+  let orphanPhotosHtml = '';
+  if (rows.length === 0 && photosFiche.length > 0) {
+    orphanPhotosHtml = `<div class="detail-section"><div class="detail-section-title">Photos</div><div class="detail-photo-grid">`;
+    photosFiche.forEach(u => {
+      orphanPhotosHtml += `<div class="detail-photo-cell"><img src="${escHtml(u)}" alt="" loading="lazy"></div>`;
+    });
+    orphanPhotosHtml += '</div></div>';
+  }
+
+  if (!rows.length) {
+    mount.innerHTML = `${synth}<p class="detail-empty">Aucune entrée de carnet pour ce voyage.</p>${orphanPhotosHtml}`;
+    detailCarouselState = { idx: 0, count: 0, rows: [] };
+    return;
+  }
+
+  const slidesHtml = rows
+    .map(r => {
+      const txt = String(r.texte || '').trim() || '—';
+      const photos = coercePhotosUrls(r.photos ?? []);
+      const thumbs =
+        photos.length > 0
+          ? `<div class="detail-carousel-slide-photos">${photos
+              .map(u => `<img src="${escHtml(u)}" alt="" loading="lazy" decoding="async">`)
+              .join('')}</div>`
+          : '';
+      return `<div class="detail-carousel-slide" role="group" aria-roledescription="slide">
+        <p class="detail-carousel-body">${escHtml(txt).replace(/\n/g, '<br>')}</p>
+        ${thumbs}
+      </div>`;
+    })
+    .join('');
+
+  const dots = rows
+    .map(
+      (_, di) =>
+        `<span class="detail-carousel-dot${di === 0 ? ' active' : ''}" role="button" tabindex="0" aria-label="Jour ${
+          di + 1
+        } sur ${rows.length}" aria-current="${di === 0 ? 'true' : 'false'}" onclick="detailCarouselGoTo(${di})" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); detailCarouselGoTo(${di}); }">${
+          di === 0 ? '●' : '○'
+        }</span>`
+    )
+    .join('');
+
+  mount.innerHTML = `${synth}
+  <div class="detail-carousel-section">
+    <div class="detail-section-title">Carnet jour par jour</div>
+    <div class="detail-carousel" id="detail-journal-carousel">
+      <div class="detail-carousel-top">
+        <button type="button" class="detail-carousel-btn" aria-label="Jour précédent" onclick="detailCarouselStep(-1)">←</button>
+        <div class="detail-carousel-head" id="detail-carousel-head" aria-live="polite"></div>
+        <button type="button" class="detail-carousel-btn" aria-label="Jour suivant" onclick="detailCarouselStep(1)">→</button>
+      </div>
+      <div class="detail-carousel-viewport" id="detail-carousel-viewport">
+        <div class="detail-carousel-track" id="detail-carousel-track" style="transform: translateX(0)">${slidesHtml}</div>
+      </div>
+      <div class="detail-carousel-dots" id="detail-carousel-dots">${dots}</div>
+    </div>
+  </div>${orphanPhotosHtml}`;
+
+  detailCarouselState = { idx: 0, count: rows.length, rows };
+  detailCarouselUpdateHead();
+  initDetailCarouselSwipe();
+}
+
 function renderFicheDetail(idx) {
   const el = document.getElementById('detail-content');
   if (!el) return;
@@ -861,21 +1115,6 @@ function renderFicheDetail(idx) {
     return html;
   };
 
-  let pics = '';
-  const photos = Array.isArray(f.photos) ? f.photos : [];
-  if (photos.length > 0) {
-    pics = `<div class="detail-section"><div class="detail-section-title">Photos</div><div class="detail-photo-grid">`;
-    photos.forEach(u => {
-      pics += `<div class="detail-photo-cell"><img src="${escHtml(u)}" alt="" loading="lazy"></div>`;
-    });
-    pics += '</div></div>';
-  }
-
-  let notes = '';
-  if (f.notes && String(f.notes).trim()) {
-    notes = `<div class="detail-notes"><div class="detail-section-title">Notes</div><div>${escHtml(f.notes).replace(/\n/g, '<br>')}</div></div>`;
-  }
-
   const detailTitle = ficheDisplayTitle(f);
   const citiesLine = ficheCitiesSubtitle(f);
 
@@ -890,13 +1129,13 @@ function renderFicheDetail(idx) {
     ${listBlock('Restaurants', f.restaurants)}
     ${listBlock('Shopping & boutiques', f.boutiques)}
     ${listBlock('Visites & lieux', f.lieux)}
-    ${notes}
-    ${pics}
+    <div id="detail-journal-carousel-mount"></div>
     <div class="detail-actions" onclick="event.stopPropagation()">
       <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
     </div>`;
 
   scheduleDetailCountryFlag(f);
+  void mountDetailJournalCarousel(idx, f);
 }
 
 function openFicheDetail(idx) {
@@ -1482,6 +1721,8 @@ function resetJournalForm(options = {}) {
   document.getElementById('loc-input').value = '';
   closeDropdown();
 
+  hideJournalDatePickerUi();
+
   if (!skipDateReset) void refreshJournalDisplayedDate();
 
   const body = document.getElementById('journal-body');
@@ -1585,8 +1826,11 @@ function extractAnthropicJson(data) {
   }
 }
 
+/** Proxy Vercel ou dev Vite — ne jamais appeler api.anthropic.com depuis le navigateur. */
+const CLAUDE_PROXY_URL = '/api/claude';
+
 function anthropicMessagesUrl() {
-  return '/api/claude';
+  return CLAUDE_PROXY_URL;
 }
 
 function anthropicRequestHeaders() {
@@ -1606,8 +1850,10 @@ async function analyseJournalEtMettreAJourFiche(voyageId, fallbackRows = null) {
     .eq('voyage_id', vid)
     .order('date', { ascending: true });
 
-  if (fetchErr) console.error('[analyseJournal] FETCH erreur:', fetchErr);
-  if (fetchErr) throw fetchErr;
+  if (fetchErr) {
+    logSupabaseErr('[analyseJournal] Entries error:', fetchErr);
+    throw fetchErr;
+  }
 
   let rows = Array.isArray(entries) ? [...entries] : [];
 
@@ -1633,18 +1879,19 @@ async function analyseJournalEtMettreAJourFiche(voyageId, fallbackRows = null) {
     lng: r.lng ?? null
   }));
 
-  const systemPrompt = `Tu es un assistant voyage. Analyse ces entrées de journal d'un même voyage et extrais les informations.
+  const systemPrompt = `Tu es un assistant voyage. Analyse ces entrées de journal d'un même voyage.
 Réponds UNIQUEMENT en JSON valide sans markdown ni backticks :
 {
-  "dest": "Nom du voyage ou destination principale",
+  "dest": "Nom du voyage ou ville principale",
   "villes": ["Paris", "Munich", "Istanbul"],
-  "hotels": ["hotel1", "hotel2"],
-  "restaurants": ["resto1", "resto2"],
-  "lieux": ["lieu1", "lieu2"],
-  "boutiques": ["boutique1"],
-  "notes": "Synthèse narrative du voyage en 2-3 phrases"
+  "hotels": ["Mama Shelter Bordeaux"],
+  "restaurants": ["Le Chien de Pavlov", "Time Out Market"],
+  "lieux": ["Torre de Belém", "Monastère des Hiéronymites"],
+  "boutiques": ["Conserveira de Lisboa"],
+  "notes": "Synthèse narrative du voyage en 2-3 phrases évocatrices"
 }
-Ne duplique pas les éléments. Fusionne intelligemment toutes les journées.`;
+Détecte intelligemment les noms propres de lieux, hôtels, restaurants mentionnés naturellement dans le texte.
+Ne duplique pas. Fusionne toutes les journées.`;
 
   const url = anthropicMessagesUrl();
   const resp = await fetch(url, {
@@ -1652,7 +1899,7 @@ Ne duplique pas les éléments. Fusionne intelligemment toutes les journées.`;
     headers: anthropicRequestHeaders(),
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1200,
+      max_tokens: 1400,
       system: systemPrompt,
       messages: [{ role: 'user', content: JSON.stringify(payloadClaude) }]
     })
@@ -1831,7 +2078,7 @@ async function saveJournalEntry() {
       if (error) throw error;
     }
   } catch (e) {
-    console.error(e);
+    logSupabaseErr('[journal_entries] save:', e);
     toast("Impossible d'enregistrer le journal — vérifie les colonnes Supabase (voyage_id…).");
     return;
   }
@@ -2345,11 +2592,16 @@ Object.assign(window, {
   dismissSharedBannerAndJournal,
   saveJournalEntry,
   newJournalEntry,
+  openJournalDatePicker,
+  onJournalDateInputChange,
+  onJournalDateInputBlur,
   onJournalVoyageSelectChange,
   createVoyageFromJournalInput,
   toggleJournalEntryExpand,
   editJournalEntry,
   deleteJournalEntry,
+  detailCarouselStep,
+  detailCarouselGoTo,
   onLocInput,
   onPhotoFiles,
   searchLocation
