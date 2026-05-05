@@ -124,6 +124,8 @@
     .accordion-label,
     .btn-detail-edit,
     .btn-detail-pdf,
+    .btn-detail-save,
+    .btn-detail-cancel,
     .gps-btn {
       font-weight: 600;
     }
@@ -812,7 +814,9 @@
     }
 
     .detail-actions .btn-detail-edit,
-    .detail-actions .btn-detail-pdf {
+    .detail-actions .btn-detail-pdf,
+    .detail-actions .btn-detail-save,
+    .detail-actions .btn-detail-cancel {
       flex: 1 1 calc(50% - 5px);
       min-width: min(100%, calc(48% - 5px));
       box-sizing: border-box;
@@ -851,6 +855,136 @@
     .btn-detail-pdf:hover {
       filter: brightness(1.06);
     }
+
+    .btn-detail-save {
+      padding: 11px 14px;
+      background: var(--marine);
+      color: var(--creme);
+      border: none;
+      border-radius: var(--radius-lg);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter .15s;
+    }
+
+    .btn-detail-save:hover { filter: brightness(1.08); }
+
+    .btn-detail-cancel {
+      padding: 11px 14px;
+      background: transparent;
+      color: var(--marine);
+      border: 2px solid rgba(91, 143, 168, 0.55);
+      border-radius: var(--radius-lg);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+
+    .btn-detail-cancel:hover {
+      background: rgba(240, 235, 224, 0.35);
+      border-color: var(--bleu-mid);
+    }
+
+    .detail-edit-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .detail-edit-input {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid rgba(91, 143, 168, 0.48);
+      border-radius: var(--radius-lg);
+      font-size: 1rem;
+      font-weight: 400;
+      color: var(--ink);
+      background: var(--input-fill);
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+
+    .detail-edit-input:focus {
+      outline: none;
+      border-color: var(--bleu-mid);
+      box-shadow: 0 0 0 2px rgba(91, 143, 168, 0.2);
+    }
+
+    .detail-edit-remove {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 1px solid rgba(91, 143, 168, 0.45);
+      border-radius: var(--radius-lg);
+      background: var(--glass-bg);
+      color: var(--marine);
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+
+    .detail-edit-remove:hover {
+      background: rgba(240, 235, 224, 0.75);
+      border-color: var(--bleu-mid);
+      color: var(--red);
+    }
+
+    .detail-edit-add {
+      margin-top: 4px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 14px;
+      border: 1px dashed rgba(91, 143, 168, 0.55);
+      border-radius: var(--radius-lg);
+      background: rgba(240, 235, 224, 0.25);
+      color: var(--marine);
+      font-size: 1.35rem;
+      font-weight: 600;
+      line-height: 1;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+
+    .detail-edit-add:hover {
+      background: rgba(240, 235, 224, 0.5);
+      border-color: var(--bleu-mid);
+    }
+
+    .detail-edit-notes {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px 14px;
+      border: 1px solid rgba(91, 143, 168, 0.48);
+      border-radius: var(--radius-lg);
+      font-size: 1rem;
+      line-height: 1.55;
+      font-weight: 400;
+      color: var(--ink);
+      background: var(--input-fill);
+      font-family: inherit;
+      resize: vertical;
+      min-height: 120px;
+      box-sizing: border-box;
+    }
+
+    .detail-edit-notes:focus {
+      outline: none;
+      border-color: var(--bleu-mid);
+      box-shadow: 0 0 0 2px rgba(91, 143, 168, 0.2);
+    }
+
+    .detail-edit-synth-section .detail-section-title {
+      display: block;
+      margin-bottom: 4px;
+    }
+
     .btn-pdf {
       width: 100%;
       padding: 12px 16px;

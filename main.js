@@ -90,7 +90,7 @@ function buildDbPayload(app) {
     app.saved_at ??
     new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const photosUrls = coercePhotosUrls(app.photos);
-  return {
+  const payload = {
     dest: app.dest ?? '',
     lat: app.lat ?? null,
     lng: app.lng ?? null,
@@ -140,6 +140,8 @@ let journalExpandedEntryId = null;
 
 /** index dans fiches[] pour la vue détail lecture seule */
 let detailFicheIdx = null;
+/** édition inline des listes + synthèse sur le panneau détail */
+let detailFicheEditMode = false;
 /** id Supabase de la fiche ouverte en plein écran — null si aucune ; préféré à l’index (réordonnancement) */
 let detailFicheId = null;
 
@@ -755,6 +757,7 @@ function ensureEditorVisible() {
 function clearDetailSelectionAndDom() {
   detailFicheIdx = null;
   detailFicheId = null;
+  detailFicheEditMode = false;
   _detailCarouselGen++;
   detailCarouselState = { idx: 0, count: 0, rows: [] };
   const dc = document.getElementById('detail-content');
@@ -1020,7 +1023,8 @@ function initDetailCarouselSwipe() {
   );
 }
 
-async function mountDetailJournalCarousel(idx, f) {
+async function mountDetailJournalCarousel(idx, f, opts = {}) {
+  const { skipSynth = false } = opts;
   const gen = ++_detailCarouselGen;
   const mount = document.getElementById('detail-journal-carousel-mount');
   if (!mount) return;
@@ -1029,7 +1033,7 @@ async function mountDetailJournalCarousel(idx, f) {
   if (gen !== _detailCarouselGen) return;
 
   const synth =
-    f.notes && String(f.notes).trim()
+    !skipSynth && f.notes && String(f.notes).trim()
       ? `<aside class="detail-voyage-synthesis"><div class="detail-section-title">Synthèse du voyage</div><div>${escHtml(
           String(f.notes).trim()
         ).replace(/\n/g, '<br>')}</div></aside>`
@@ -1111,43 +1115,85 @@ function renderFicheDetail(idx) {
   if (detailFicheId != null && f.id && String(f.id) !== String(detailFicheId)) return;
 
   /** @param {string} label */
-  const listBlock = (label, arr) => {
+  const listBlockRead = (label, arr) => {
     const items = coerceJsonArray(arr).filter(Boolean);
     let html = `<div class="detail-section"><div class="detail-section-title">${escHtml(label)}</div>`;
     if (items.length === 0) html += `<p class="detail-empty">—</p>`;
-    else items.forEach(t => {
-      html += `<div class="detail-li">${escHtml(t)}</div>`;
-    });
+    else
+      items.forEach(t => {
+        html += `<div class="detail-li">${escHtml(t)}</div>`;
+      });
     html += '</div>';
     return html;
+  };
+
+  /** @param {'hotels'|'restaurants'|'boutiques'|'lieux'} fieldKey */
+  const listBlockEdit = (label, arr, fieldKey) => {
+    const items = coerceJsonArray(arr).map(x => String(x).trim()).filter(Boolean);
+    const displayItems = items.length ? items : [];
+    const rowsHtml = displayItems
+      .map(
+        t => `<div class="detail-edit-row">
+      <input type="text" class="detail-edit-input" data-field="${fieldKey}" value="${escHtml(t)}">
+      <button type="button" class="detail-edit-remove" onclick="detailEditRemoveRow(this)" aria-label="Supprimer">✕</button>
+    </div>`
+      )
+      .join('');
+    return `<div class="detail-section detail-edit-section">
+      <div class="detail-section-title">${escHtml(label)}</div>
+      <div class="detail-edit-rows" id="detail-edit-${fieldKey}">${rowsHtml}</div>
+      <button type="button" class="detail-edit-add" onclick="detailEditAddRow('${fieldKey}')" aria-label="Ajouter une ligne">+</button>
+    </div>`;
   };
 
   const detailTitle = ficheDisplayTitle(f);
   const citiesLine = ficheCitiesSubtitle(f);
 
-  el.innerHTML = `
+  const listsHtml = detailFicheEditMode
+    ? `${listBlockEdit('Hébergement', f.hotels, 'hotels')}
+    ${listBlockEdit('Restaurants', f.restaurants, 'restaurants')}
+    ${listBlockEdit('Shopping & boutiques', f.boutiques, 'boutiques')}
+    ${listBlockEdit('Visites & lieux', f.lieux, 'lieux')}
+    <div class="detail-section detail-edit-synth-section">
+      <label class="detail-section-title" for="detail-edit-notes">Synthèse du voyage</label>
+      <textarea id="detail-edit-notes" class="detail-edit-notes" rows="6" spellcheck="true">${escHtml(String(f.notes ?? ''))}</textarea>
+    </div>`
+    : `${listBlockRead('Hébergement', f.hotels)}
+    ${listBlockRead('Restaurants', f.restaurants)}
+    ${listBlockRead('Shopping & boutiques', f.boutiques)}
+    ${listBlockRead('Visites & lieux', f.lieux)}`;
+
+  const actionsHtml = detailFicheEditMode
+    ? `<div class="detail-actions" onclick="event.stopPropagation()">
+      <button type="button" class="btn-detail-save" onclick="event.stopPropagation(); saveFicheDetailEdits()">✓ Sauvegarder</button>
+      <button type="button" class="btn-detail-cancel" onclick="event.stopPropagation(); cancelFicheDetailEdit()">Annuler</button>
+    </div>`
+    : `<div class="detail-actions" onclick="event.stopPropagation()">
+      <button type="button" class="btn-detail-edit" onclick="event.stopPropagation(); enterFicheDetailEditMode()">Modifier</button>
+      <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
+    </div>`;
+
+  el.innerHTML =
+  `
     <header class="detail-head">
       <div id="detail-flag-wrap" class="detail-flag-wrap" aria-hidden="true"></div>
       <h1 class="detail-h1">${escHtml(detailTitle)}</h1>
       ${citiesLine ? `<p class="detail-cities">${escHtml(citiesLine)}</p>` : ''}
       <p class="detail-period">${escHtml([f.mois, f.annee].filter(Boolean).join(' · ') || 'Période non renseignée')}</p>
     </header>
-    ${listBlock('Hébergement', f.hotels)}
-    ${listBlock('Restaurants', f.restaurants)}
-    ${listBlock('Shopping & boutiques', f.boutiques)}
-    ${listBlock('Visites & lieux', f.lieux)}
+    ${listsHtml}
     <div id="detail-journal-carousel-mount"></div>
-    <div class="detail-actions" onclick="event.stopPropagation()">
-      <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
-    </div>`;
+    ${actionsHtml}`;
 
   scheduleDetailCountryFlag(f);
-  void mountDetailJournalCarousel(idx, f);
+  void mountDetailJournalCarousel(idx, f, { skipSynth: detailFicheEditMode });
 }
 
-function openFicheDetail(idx) {
+function openFicheDetail(idx, options = {}) {
+  const { edit = false } = options;
   const f = fiches[idx];
   if (!f) return;
+  detailFicheEditMode = !!edit;
   detailFicheIdx = idx;
   detailFicheId = f.id != null ? String(f.id) : null;
   renderFicheDetail(idx);
@@ -1158,6 +1204,84 @@ function openFicheDetail(idx) {
   const sc = document.querySelector('#detailView .preview-inner');
   if (sc) sc.scrollTo({ top: 0 });
   updateNavBar();
+}
+
+function openFicheDetailForEdit(idx) {
+  openFicheDetail(idx, { edit: true });
+}
+
+function collectDetailEditList(fieldKey) {
+  const wrap = document.getElementById(`detail-edit-${fieldKey}`);
+  if (!wrap) return [];
+  return [...wrap.querySelectorAll('.detail-edit-input')]
+    .map(inp => String(inp.value || '').trim())
+    .filter(Boolean);
+}
+
+function detailEditAddRow(fieldKey) {
+  const wrap = document.getElementById(`detail-edit-${fieldKey}`);
+  if (!wrap) return;
+  wrap.insertAdjacentHTML(
+    'beforeend',
+    `<div class="detail-edit-row">
+      <input type="text" class="detail-edit-input" data-field="${fieldKey}" value="" aria-label="Ligne">
+      <button type="button" class="detail-edit-remove" onclick="detailEditRemoveRow(this)" aria-label="Supprimer">✕</button>
+    </div>`
+  );
+  const inputs = wrap.querySelectorAll('.detail-edit-input');
+  inputs[inputs.length - 1]?.focus();
+}
+
+function detailEditRemoveRow(btn) {
+  btn.closest('.detail-edit-row')?.remove();
+}
+
+function enterFicheDetailEditMode() {
+  if (detailFicheIdx == null) return;
+  detailFicheEditMode = true;
+  renderFicheDetail(detailFicheIdx);
+}
+
+function cancelFicheDetailEdit() {
+  if (detailFicheIdx == null) return;
+  detailFicheEditMode = false;
+  renderFicheDetail(detailFicheIdx);
+}
+
+async function saveFicheDetailEdits() {
+  const idx = detailFicheIdx;
+  const f = idx != null ? fiches[idx] : null;
+  if (!f?.id) return;
+  const hotels = collectDetailEditList('hotels');
+  const restaurants = collectDetailEditList('restaurants');
+  const boutiques = collectDetailEditList('boutiques');
+  const lieux = collectDetailEditList('lieux');
+  const notesEl = document.getElementById('detail-edit-notes');
+  const notes = notesEl ? String(notesEl.value || '') : '';
+  const updated = { ...f, hotels, restaurants, boutiques, lieux, notes };
+  const payload = buildDbPayload(updated);
+  try {
+    const { error } = await supabase.from('fiches').update(payload).eq('id', f.id);
+    if (error) throw error;
+  } catch (e) {
+    console.error(e);
+    toast("Impossible d'enregistrer la fiche");
+    return;
+  }
+  await refreshFichesFromSupabase();
+  const newIdx = fiches.findIndex(x => x.id != null && String(x.id) === String(f.id));
+  if (newIdx < 0) {
+    detailFicheEditMode = false;
+    closeDetailPanel({ goList: true });
+    toast('Fiche mise à jour ✦');
+    return;
+  }
+  detailFicheIdx = newIdx;
+  detailFicheId = String(f.id);
+  detailFicheEditMode = false;
+  renderFicheDetail(newIdx);
+  renderFicheList();
+  toast('Fiche mise à jour ✦');
 }
 
 // ══════════════════════════════════════
@@ -1823,7 +1947,7 @@ function bindFicheModifierClickCapture() {
       ev.stopPropagation();
       ev.stopImmediatePropagation();
       const idx = Number(btn.getAttribute('data-fiche-idx'));
-      if (Number.isFinite(idx)) openJournalForFiche(idx);
+      if (Number.isFinite(idx)) openFicheDetailForEdit(idx);
     },
     true
   );
@@ -2641,6 +2765,7 @@ function escHtml(str) {
 Object.assign(window, {
   navSiteTitleGoHome,
   openFicheDetail,
+  openFicheDetailForEdit,
   switchTab,
   navBarBack,
   openShareMenu,
@@ -2664,6 +2789,11 @@ Object.assign(window, {
   newJournalEntry,
   openJournalForFiche,
   ouvrirJournalPourVoyage,
+  enterFicheDetailEditMode,
+  cancelFicheDetailEdit,
+  saveFicheDetailEdits,
+  detailEditAddRow,
+  detailEditRemoveRow,
   openJournalDatePicker,
   onJournalDateInputChange,
   onJournalDateInputBlur,
