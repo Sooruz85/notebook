@@ -262,10 +262,6 @@ function applyBrowserJournalDate() {
   setJournalDateDisplay(formatDateFR(journalEntryDateISO));
 }
 
-async function refreshJournalDisplayedDate() {
-  applyBrowserJournalDate();
-}
-
 // ══════════════════════════════════════
 // VOYAGES & LISTE JOURNAL
 // ══════════════════════════════════════
@@ -417,9 +413,15 @@ async function refreshJournalEntriesFromSupabase() {
   journalEntriesCache = Array.isArray(data) ? data : [];
 }
 
+async function refreshJournalListAndRender() {
+  await refreshJournalEntriesFromSupabase();
+  renderJournalEntriesList();
+}
+
 function journalEntryDateLabelFr(iso) {
-  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const d = new Date(`${iso}T12:00:00`);
+  const ymd = journalEntryYmdForPicker(iso);
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T12:00:00`);
   if (Number.isNaN(d.getTime())) return '';
   return d
     .toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' })
@@ -453,7 +455,6 @@ function renderJournalEntriesList() {
   }
   if (byVoyage.has('')) voyageOrder.push('');
 
-  const esc = escHtml;
   const parts = [];
   for (const vid of voyageOrder) {
     const list = byVoyage.get(vid);
@@ -466,7 +467,7 @@ function renderJournalEntriesList() {
           ? voyagesCache.find(x => String(x.id) === vid)?.nom || 'Voyage'
           : 'Sans voyage';
     parts.push(`<div class="journal-voyage-block">
-      <h3 class="journal-voyage-heading">🗺️ ${esc(vnom)}</h3>
+      <h3 class="journal-voyage-heading">🗺️ ${escHtml(vnom)}</h3>
       <ul class="journal-entry-rows">`);
     for (const e of list) {
       const eid = e.id != null ? String(e.id) : '';
@@ -481,23 +482,23 @@ function renderJournalEntriesList() {
               .slice(0, 8)
               .map(
                 u =>
-                  `<img src="${esc(u)}" alt="" loading="lazy" decoding="async">`
+                  `<img src="${escHtml(u)}" alt="" loading="lazy" decoding="async">`
               )
               .join('')}</div>`
           : '';
-      parts.push(`<li class="journal-entry-row${expanded ? ' expanded' : ''}" data-entry-id="${esc(eid)}">
+      parts.push(`<li class="journal-entry-row${expanded ? ' expanded' : ''}" data-entry-id="${escHtml(eid)}">
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;">
-          <button type="button" class="journal-entry-line" onclick="toggleJournalEntryExpand('${esc(eid)}')" aria-expanded="${expanded}">
-            <span class="journal-entry-date">${esc(dlab)}</span>
-            <span class="journal-entry-loc">${esc(loc)}</span>
+          <button type="button" class="journal-entry-line" onclick="toggleJournalEntryExpand('${escHtml(eid)}')" aria-expanded="${expanded}">
+            <span class="journal-entry-date">${escHtml(dlab)}</span>
+            <span class="journal-entry-loc">${escHtml(loc)}</span>
           </button>
           <div class="journal-entry-actions" onclick="event.stopPropagation()">
-            <button type="button" title="Modifier" aria-label="Modifier" onclick="editJournalEntry(event, '${esc(eid)}')">✏️</button>
-            <button type="button" class="journal-entry-del" title="Supprimer" aria-label="Supprimer" onclick="deleteJournalEntry(event, '${esc(eid)}')">🗑️</button>
+            <button type="button" title="Modifier" aria-label="Modifier" onclick="editJournalEntry(event, '${escHtml(eid)}')">✏️</button>
+            <button type="button" class="journal-entry-del" title="Supprimer" aria-label="Supprimer" onclick="deleteJournalEntry(event, '${escHtml(eid)}')">🗑️</button>
           </div>
         </div>
         <div class="journal-entry-read">
-          ${esc(String(e.texte || '').trim() || '—')}
+          ${escHtml(String(e.texte || '').trim() || '—')}
           ${thumbs}
         </div>
       </li>`);
@@ -599,8 +600,7 @@ async function deleteJournalEntry(ev, entryId) {
   }
   journalExpandedEntryId = null;
 
-  await refreshJournalEntriesFromSupabase();
-  renderJournalEntriesList();
+  await refreshJournalListAndRender();
 
   if (!vid) {
     toast('Entrée supprimée');
@@ -706,8 +706,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await fetchVoyagesFromSupabase();
   populateJournalVoyageSelect();
-  await refreshJournalEntriesFromSupabase();
-  renderJournalEntriesList();
+  await refreshJournalListAndRender();
 
   applyBrowserJournalDate();
   renderPhotoGrid();
@@ -792,8 +791,7 @@ function switchTab(tab, options = {}) {
         try {
           await fetchVoyagesFromSupabase();
           populateJournalVoyageSelect();
-          await refreshJournalEntriesFromSupabase();
-          renderJournalEntriesList();
+          await refreshJournalListAndRender();
         } catch (e) {
           console.warn(e);
         }
@@ -934,6 +932,7 @@ async function fetchJournalEntriesForFicheDetail(voyageId) {
 
 function journalEntryYmdForPicker(iso) {
   if (iso == null) return '';
+  if (iso instanceof Date && !Number.isNaN(iso.getTime())) return isoDateLocal(iso);
   if (typeof iso === 'string') {
     const t = iso.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
@@ -990,14 +989,7 @@ function detailCarouselBeginTextEdit(p) {
       const dispTrim = String(newText || '').trim();
       p.innerHTML = dispTrim ? escHtml(dispTrim).replace(/\n/g, '<br>') : '—';
 
-      void (async () => {
-        try {
-          await refreshJournalEntriesFromSupabase();
-          renderJournalEntriesList();
-        } catch {
-          /* ignore */
-        }
-      })();
+      void refreshJournalListAndRender().catch(() => {});
 
       toast('Entrée mise à jour ✦');
     })();
@@ -1041,22 +1033,19 @@ function initDetailCarouselInteraction() {
   if (!carouselEl || carouselEl.dataset.carouselNavInit === '1') return;
   carouselEl.dataset.carouselNavInit = '1';
 
-  carouselEl.addEventListener('click', ev => {
-    const textHit = ev.target.closest('.detail-carousel-text-editable');
-    if (textHit && carouselEl.contains(textHit) && textHit.tagName === 'P') {
-      ev.preventDefault();
-      ev.stopPropagation();
-      detailCarouselBeginTextEdit(textHit);
-    }
-  });
+  const tryBeginTextEdit = (ev, withStopPropagation) => {
+    const textHit = ev.target.closest?.('.detail-carousel-text-editable');
+    if (!textHit || !carouselEl.contains(textHit) || textHit.tagName !== 'P') return;
+    ev.preventDefault();
+    if (withStopPropagation) ev.stopPropagation();
+    detailCarouselBeginTextEdit(textHit);
+  };
+
+  carouselEl.addEventListener('click', ev => tryBeginTextEdit(ev, true));
 
   carouselEl.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    const textHit = ev.target.closest?.('.detail-carousel-text-editable');
-    if (textHit && carouselEl.contains(textHit) && textHit.tagName === 'P') {
-      ev.preventDefault();
-      detailCarouselBeginTextEdit(textHit);
-    }
+    tryBeginTextEdit(ev, false);
   });
 
   let touchStartX = 0;
@@ -1120,22 +1109,26 @@ function detailCarouselSlideHtmlFromRow(r) {
   return `<div class="detail-carousel-slide"${dataAttr} role="group" aria-roledescription="slide">${inner}</div>`;
 }
 
+function detailCarouselDotsHtml(count, activeIdx) {
+  if (count <= 0) return '';
+  const a = Math.max(0, Math.min(activeIdx, count - 1));
+  let html = '';
+  for (let di = 0; di < count; di++) {
+    const on = di === a;
+    html += `<span class="detail-carousel-dot${on ? ' active' : ''}" role="button" tabindex="0" aria-label="Jour ${
+      di + 1
+    } sur ${count}" aria-current="${on ? 'true' : 'false'}" onclick="detailCarouselGoTo(${di})" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); detailCarouselGoTo(${di}); }">${
+      on ? '●' : '○'
+    }</span>`;
+  }
+  return html;
+}
+
 function detailCarouselRebuildDots(activeIdx) {
   const dotsEl = document.getElementById('detail-carousel-dots');
   const rows = detailCarouselState.rows;
   if (!dotsEl || !rows.length) return;
-  const n = rows.length;
-  const a = Math.max(0, Math.min(activeIdx, n - 1));
-  dotsEl.innerHTML = rows
-    .map(
-      (_, di) =>
-        `<span class="detail-carousel-dot${di === a ? ' active' : ''}" role="button" tabindex="0" aria-label="Jour ${
-          di + 1
-        } sur ${n}" aria-current="${di === a ? 'true' : 'false'}" onclick="detailCarouselGoTo(${di})" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); detailCarouselGoTo(${di}); }">${
-          di === a ? '●' : '○'
-        }</span>`
-    )
-    .join('');
+  dotsEl.innerHTML = detailCarouselDotsHtml(rows.length, activeIdx);
 }
 
 function detailCarouselApplyEntrySave(entryId, newIso, newText) {
@@ -1193,16 +1186,7 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
 
   const slidesHtml = rows.map(detailCarouselSlideHtmlFromRow).join('');
 
-  const dots = rows
-    .map(
-      (_, di) =>
-        `<span class="detail-carousel-dot${di === 0 ? ' active' : ''}" role="button" tabindex="0" aria-label="Jour ${
-          di + 1
-        } sur ${rows.length}" aria-current="${di === 0 ? 'true' : 'false'}" onclick="detailCarouselGoTo(${di})" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); detailCarouselGoTo(${di}); }">${
-          di === 0 ? '●' : '○'
-        }</span>`
-    )
-    .join('');
+  const dots = detailCarouselDotsHtml(rows.length, 0);
 
   mount.innerHTML = `${synth}
   <div class="detail-carousel-section">
@@ -1976,7 +1960,7 @@ function resetJournalForm(options = {}) {
 
   hideJournalDatePickerUi();
 
-  if (!skipDateReset) void refreshJournalDisplayedDate();
+  if (!skipDateReset) applyBrowserJournalDate();
 
   const body = document.getElementById('journal-body');
   if (body) body.value = '';
@@ -1989,8 +1973,7 @@ function resetJournalForm(options = {}) {
     void (async () => {
       await fetchVoyagesFromSupabase();
       populateJournalVoyageSelect();
-      await refreshJournalEntriesFromSupabase();
-      renderJournalEntriesList();
+      await refreshJournalListAndRender();
     })();
   } else {
     renderJournalEntriesList();
@@ -2040,8 +2023,7 @@ async function ouvrirJournalPourVoyage(voyageId) {
     } else {
       onJournalVoyageSelectChange();
     }
-    await refreshJournalEntriesFromSupabase();
-    renderJournalEntriesList();
+    await refreshJournalListAndRender();
   } catch (e) {
     console.warn(e);
     onJournalVoyageSelectChange();
@@ -2429,8 +2411,7 @@ async function saveJournalEntry() {
     toast('✨ Fiche mise à jour !');
     await refreshFichesFromSupabase();
     renderFicheList();
-    await refreshJournalEntriesFromSupabase();
-    renderJournalEntriesList();
+    await refreshJournalListAndRender();
     resetJournalForm({ keepVoyageList: true, skipDateReset: false });
     populateJournalVoyageSelect();
     onJournalVoyageSelectChange();
@@ -2446,8 +2427,7 @@ async function saveJournalEntry() {
     try {
       await refreshFichesFromSupabase();
       renderFicheList();
-      await refreshJournalEntriesFromSupabase();
-      renderJournalEntriesList();
+      await refreshJournalListAndRender();
     } catch {
       /* silence */
     }
