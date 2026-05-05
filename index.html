@@ -2228,6 +2228,23 @@
       line-height: 1.35;
     }
 
+    .detail-carousel-head--editable {
+      cursor: pointer;
+      border-bottom: 1px dashed transparent;
+      transition: border-color 0.2s ease;
+      outline: none;
+    }
+
+    .detail-carousel-head--editable:hover {
+      border-bottom-color: rgba(91, 143, 168, 0.55);
+    }
+
+    #detail-carousel-head .detail-carousel-slide-date-input {
+      max-width: 100%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
     .detail-carousel-viewport {
       overflow: hidden;
       border-radius: var(--radius-lg);
@@ -2249,19 +2266,6 @@
       box-sizing: border-box;
     }
 
-    .detail-carousel-date-editable {
-      cursor: pointer;
-      display: inline-block;
-      max-width: 100%;
-      border-bottom: 1px dashed transparent;
-      transition: border-color 0.2s ease;
-      outline: none;
-    }
-
-    .detail-carousel-date-editable:hover {
-      border-bottom-color: rgba(91, 143, 168, 0.55);
-    }
-
     .detail-carousel-text-editable {
       cursor: text;
       border: 1px dashed transparent;
@@ -2279,22 +2283,6 @@
 
     .detail-carousel-slide-read {
       margin: 0 0 12px 0;
-    }
-
-    .detail-carousel-slide-date-big {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--marine);
-      line-height: 1.3;
-      margin: 0 0 6px 0;
-    }
-
-    .detail-carousel-slide-loc {
-      font-size: 0.9375rem;
-      font-weight: 500;
-      color: var(--gris-bleu);
-      line-height: 1.35;
-      margin: 0 0 14px 0;
     }
 
     .detail-carousel-body-textarea {

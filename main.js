@@ -974,37 +974,26 @@ function detailCarouselHasInlineField() {
   );
 }
 
-function detailCarouselReplaceDateInputWithLabel(inp, isoYmd) {
-  if (!inp?.isConnected) return;
-  const lab = document.createElement('div');
-  lab.className = 'detail-carousel-slide-date-big detail-carousel-date-editable';
-  lab.setAttribute('role', 'button');
-  lab.setAttribute('aria-label', 'Modifier la date');
-  lab.tabIndex = 0;
-  const y = isoYmd && /^\d{4}-\d{2}-\d{2}$/.test(String(isoYmd).trim()) ? String(isoYmd).trim() : '';
-  lab.textContent = y ? detailCarouselSlideDateLabel(y) || '—' : '—';
-  inp.replaceWith(lab);
-}
+function detailCarouselBeginHeadDateEdit() {
+  const head = document.getElementById('detail-carousel-head');
+  if (!head || head.querySelector('input.detail-carousel-slide-date-input')) return;
+  if (document.querySelector('#detail-journal-carousel textarea.detail-carousel-inline-text')) return;
 
-function detailCarouselBeginDateEdit(dateEl) {
-  const slide = dateEl.closest('.detail-carousel-slide');
-  if (!slide || slide.querySelector('input.detail-carousel-slide-date-input')) return;
-  if (slide.querySelector('textarea.detail-carousel-inline-text')) return;
+  const { idx, rows } = detailCarouselState;
+  const row = rows[idx];
+  if (!row || row.id == null) return;
 
-  const entryId = slide.getAttribute('data-entry-id');
-  if (!entryId) return;
-  const row = detailCarouselState.rows.find(x => String(x.id) === String(entryId));
-  if (!row) return;
-
+  const entryId = String(row.id);
   let ymd = journalEntryYmdForPicker(row.date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = isoDateLocal(new Date());
 
+  head.replaceChildren();
   const inp = document.createElement('input');
   inp.type = 'date';
-  inp.className = 'detail-carousel-slide-date-input';
+  inp.className = 'detail-carousel-slide-date-input detail-carousel-head-date-input';
   inp.setAttribute('aria-label', 'Modifier la date');
   inp.value = ymd;
-  dateEl.replaceWith(inp);
+  head.appendChild(inp);
 
   let settled = false;
   const finish = async () => {
@@ -1014,11 +1003,11 @@ function detailCarouselBeginDateEdit(dateEl) {
     const prevYmd = journalEntryYmdForPicker(row.date);
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-      detailCarouselReplaceDateInputWithLabel(inp, prevYmd);
+      detailCarouselUpdateHead();
       return;
     }
     if (v === prevYmd) {
-      detailCarouselReplaceDateInputWithLabel(inp, v);
+      detailCarouselUpdateHead();
       return;
     }
 
@@ -1031,7 +1020,7 @@ function detailCarouselBeginDateEdit(dateEl) {
     } catch (e) {
       logSupabaseErr('[journal_entries] carousel date', e);
       toast("Impossible de mettre à jour la date");
-      detailCarouselReplaceDateInputWithLabel(inp, prevYmd);
+      detailCarouselUpdateHead();
       return;
     }
 
@@ -1149,10 +1138,22 @@ function detailCarouselUpdateHead() {
   const datePart = dlab ? `${escHtml(dlab)}` : '—';
   const locPart = escHtml(loc);
   head.innerHTML = `${datePart} — ${locPart}`;
+  if (r.id != null) {
+    head.classList.add('detail-carousel-head--editable');
+    head.setAttribute('role', 'button');
+    head.setAttribute('tabindex', '0');
+    head.setAttribute('aria-label', 'Modifier la date du jour');
+  } else {
+    head.classList.remove('detail-carousel-head--editable');
+    head.removeAttribute('role');
+    head.removeAttribute('tabindex');
+    head.removeAttribute('aria-label');
+  }
 }
 
-function detailCarouselGoTo(i) {
-  if (detailCarouselHasInlineField()) return;
+function detailCarouselGoTo(i, opts = {}) {
+  const { skipInlineCheck = false } = opts;
+  if (!skipInlineCheck && detailCarouselHasInlineField()) return;
   const { count } = detailCarouselState;
   if (count <= 0) return;
   let idx = Number(i);
@@ -1187,11 +1188,16 @@ function initDetailCarouselInteraction() {
   carouselEl.dataset.carouselNavInit = '1';
 
   carouselEl.addEventListener('click', ev => {
-    const dateHit = ev.target.closest('.detail-carousel-date-editable');
-    if (dateHit && carouselEl.contains(dateHit)) {
+    const headEl = ev.target.closest('#detail-carousel-head');
+    if (
+      headEl &&
+      carouselEl.contains(headEl) &&
+      headEl.classList.contains('detail-carousel-head--editable') &&
+      !headEl.querySelector('input.detail-carousel-slide-date-input')
+    ) {
       ev.preventDefault();
       ev.stopPropagation();
-      detailCarouselBeginDateEdit(dateHit);
+      detailCarouselBeginHeadDateEdit();
       return;
     }
     const textHit = ev.target.closest('.detail-carousel-text-editable');
@@ -1204,10 +1210,15 @@ function initDetailCarouselInteraction() {
 
   carouselEl.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    const dateHit = ev.target.closest?.('.detail-carousel-date-editable');
-    if (dateHit && carouselEl.contains(dateHit)) {
+    const headEl = ev.target.closest?.('#detail-carousel-head');
+    if (
+      headEl &&
+      carouselEl.contains(headEl) &&
+      headEl.classList.contains('detail-carousel-head--editable') &&
+      !headEl.querySelector('input.detail-carousel-slide-date-input')
+    ) {
       ev.preventDefault();
-      detailCarouselBeginDateEdit(dateHit);
+      detailCarouselBeginHeadDateEdit();
       return;
     }
     const textHit = ev.target.closest?.('.detail-carousel-text-editable');
@@ -1256,16 +1267,10 @@ function initDetailCarouselInteraction() {
 function detailCarouselSlideReadBlockHtml(r, editable) {
   const rawTxt = String(r.texte ?? '');
   const trimmed = rawTxt.trim();
-  const dlab = detailCarouselSlideDateLabel(r.date);
-  const locShort = detailCarouselShortDestination(r.destination);
   const pBody = trimmed ? escHtml(trimmed).replace(/\n/g, '<br>') : '—';
-  const dateCls = editable ? ' detail-carousel-date-editable' : '';
   const textCls = editable ? ' detail-carousel-text-editable' : '';
-  const dateA11y = editable ? ' role="button" tabindex="0" aria-label="Modifier la date"' : '';
   const textA11y = editable ? ' tabindex="0" aria-label="Modifier le texte"' : '';
   return `<div class="detail-carousel-slide-read">
-      <div class="detail-carousel-slide-date-big${dateCls}"${dateA11y}>${escHtml(dlab || '—')}</div>
-      <div class="detail-carousel-slide-loc">${escHtml(locShort)}</div>
       <p class="detail-carousel-body${textCls}"${textA11y}>${pBody}</p>
     </div>`;
 }
@@ -1320,7 +1325,7 @@ function detailCarouselApplyEntrySave(entryId, newIso, newText) {
   if (track) track.innerHTML = detailCarouselState.rows.map(detailCarouselSlideHtmlFromRow).join('');
   detailCarouselState.count = detailCarouselState.rows.length;
   detailCarouselRebuildDots(idx);
-  detailCarouselGoTo(idx);
+  detailCarouselGoTo(idx, { skipInlineCheck: true });
 }
 
 async function mountDetailJournalCarousel(idx, f, opts = {}) {
