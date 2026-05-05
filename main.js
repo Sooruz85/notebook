@@ -263,26 +263,7 @@ function applyBrowserJournalDate() {
 }
 
 async function refreshJournalDisplayedDate() {
-  const latOk = typeof currentLat === 'number' && Number.isFinite(currentLat);
-  const lngOk = typeof currentLng === 'number' && Number.isFinite(currentLng);
-
-  if (latOk && lngOk) {
-    try {
-      const res = await fetch(
-        `https://timeapi.io/api/time/current/coordinate?latitude=${currentLat}&longitude=${currentLng}`
-      );
-      const data = await res.json();
-      const dateTime = data?.dateTime;
-      if (typeof dateTime !== 'string' || dateTime.length < 10) throw new Error('missing dateTime');
-
-      journalEntryDateISO = dateTime.slice(0, 10);
-      const fr = formatDateFR(journalEntryDateISO);
-      if (!fr) throw new Error('invalid date');
-      setJournalDateDisplay(fr);
-    } catch {
-      applyBrowserJournalDate();
-    }
-  } else applyBrowserJournalDate();
+  applyBrowserJournalDate();
 }
 
 // ══════════════════════════════════════
@@ -1786,8 +1767,6 @@ function applySelectedState() {
     document.getElementById('mini-map').innerHTML =
       `<div class="mini-map-placeholder">Carte non disponible — saisie manuelle</div>`;
   }
-
-  void refreshJournalDisplayedDate();
 }
 
 function clearLocation() {
@@ -1801,7 +1780,6 @@ function clearLocation() {
   document.getElementById('loc-input').value = '';
   const mm = document.getElementById('mini-map');
   if (mm) mm.innerHTML = '';
-  void refreshJournalDisplayedDate();
 }
 
 // ══════════════════════════════════════
