@@ -2249,37 +2249,100 @@
       box-sizing: border-box;
     }
 
-    .detail-carousel-slide-date-wrap {
+    .detail-carousel-slide-date-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
       margin: 0 0 12px 0;
     }
 
-    .detail-carousel-slide-date-btn {
-      display: inline-block;
-      padding: 0 0 4px 0;
-      margin: 0;
-      border: none;
-      border-bottom: 1px dashed rgba(91, 143, 168, 0.55);
-      background: transparent;
-      font: inherit;
+    .detail-carousel-slide-datetext {
       font-size: 0.9375rem;
       font-weight: 700;
       color: var(--marine);
-      cursor: pointer;
-      text-align: left;
       line-height: 1.35;
+      flex: 1;
+      min-width: 0;
     }
 
-    .detail-carousel-slide-date-btn:hover {
-      border-bottom-color: var(--bleu-mid);
-      color: var(--ink);
+    .detail-carousel-edit-icon {
+      font-size: 14px;
+      color: var(--gris-bleu);
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+      background: none;
+      border: none;
+      padding: 2px 4px;
+      line-height: 1;
+      flex-shrink: 0;
     }
 
-    .detail-carousel-slide-date-static {
-      display: block;
-      font-size: 0.9375rem;
-      font-weight: 600;
-      color: var(--marine);
+    .detail-carousel-edit-icon:hover {
+      opacity: 1;
+    }
+
+    .detail-carousel-body-block {
+      position: relative;
       margin: 0 0 12px 0;
+    }
+
+    .detail-carousel-body-block .detail-carousel-edit-text {
+      position: absolute;
+      top: 0;
+      right: 0;
+      z-index: 1;
+    }
+
+    .detail-carousel-body-block .detail-carousel-body {
+      margin: 0;
+      padding-right: 28px;
+    }
+
+    .detail-carousel-body-textarea {
+      display: block;
+      width: 100%;
+      min-height: 120px;
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid rgba(91, 143, 168, 0.52);
+      border-radius: var(--radius-lg);
+      font-size: 1rem;
+      line-height: 1.55;
+      font-family: inherit;
+      background: var(--input-fill);
+      color: var(--ink);
+      box-sizing: border-box;
+      resize: vertical;
+    }
+
+    .detail-carousel-text-edit-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+    }
+
+    .detail-carousel-text-save,
+    .detail-carousel-text-cancel {
+      min-width: 2.25rem;
+      height: 2.25rem;
+      padding: 0 10px;
+      border: 1px solid rgba(91, 143, 168, 0.45);
+      border-radius: var(--radius-lg);
+      background: var(--cream);
+      color: var(--marine);
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .detail-carousel-text-save:hover,
+    .detail-carousel-text-cancel:hover {
+      border-color: var(--bleu-mid);
+      background: rgba(240, 235, 224, 0.65);
     }
 
     .detail-carousel-slide-date-input {
@@ -2296,6 +2359,10 @@
       color: var(--ink);
       font-family: inherit;
       box-sizing: border-box;
+    }
+
+    .detail-carousel-slide > .detail-carousel-body {
+      margin: 0 0 12px 0;
     }
 
     .detail-carousel-body {

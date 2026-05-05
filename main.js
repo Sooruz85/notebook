@@ -968,27 +968,30 @@ function journalEntryYmdForPicker(iso) {
   return '';
 }
 
-function detailCarouselOpenDateEditor(btn) {
-  const wrap = btn.closest('.detail-carousel-slide-date-wrap');
-  if (!wrap || wrap.querySelector('input.detail-carousel-slide-date-input')) return;
-  const entryId = btn.getAttribute('data-entry-id');
+function detailCarouselOpenDateEditor(pencilBtn) {
+  const line = pencilBtn.closest('.detail-carousel-slide-date-line');
+  if (!line || line.querySelector('input.detail-carousel-slide-date-input')) return;
+  const label = line.querySelector('.detail-carousel-slide-datetext');
+  const entryId = pencilBtn.getAttribute('data-entry-id');
   if (!entryId) return;
 
-  let ymd = btn.getAttribute('data-date-iso') || '';
+  let ymd = pencilBtn.getAttribute('data-date-iso') || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = isoDateLocal(new Date());
 
-  btn.hidden = true;
+  if (label) label.hidden = true;
+  pencilBtn.hidden = true;
   const inp = document.createElement('input');
   inp.type = 'date';
   inp.className = 'detail-carousel-slide-date-input';
   inp.setAttribute('aria-label', 'Modifier la date');
   inp.value = ymd;
-  wrap.appendChild(inp);
+  line.appendChild(inp);
 
   let settled = false;
   const tearDown = () => {
     if (inp.isConnected) inp.remove();
-    btn.hidden = false;
+    if (label) label.hidden = false;
+    pencilBtn.hidden = false;
   };
   const finish = async () => {
     if (settled) return;
@@ -996,7 +999,7 @@ function detailCarouselOpenDateEditor(btn) {
     const v = String(inp.value || '').trim();
     tearDown();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
-    const prev = btn.getAttribute('data-date-iso') || '';
+    const prev = pencilBtn.getAttribute('data-date-iso') || '';
     if (v === prev) return;
 
     try {
@@ -1037,6 +1040,99 @@ function detailCarouselOpenDateEditor(btn) {
       if (!settled) void finish();
     });
   });
+}
+
+function detailCarouselOpenTextEditor(pencilBtn) {
+  const block = pencilBtn.closest('.detail-carousel-body-block');
+  if (!block || block.querySelector('textarea.detail-carousel-body-textarea')) return;
+  const entryId = pencilBtn.getAttribute('data-entry-id') || block.getAttribute('data-entry-id');
+  if (!entryId) return;
+  const row = detailCarouselState.rows.find(x => String(x.id) === String(entryId));
+  if (!row) return;
+
+  const p = block.querySelector('.detail-carousel-body');
+  if (!p) return;
+  const initial = String(row.texte ?? '');
+
+  pencilBtn.hidden = true;
+  p.hidden = true;
+
+  const ta = document.createElement('textarea');
+  ta.className = 'detail-carousel-body-textarea';
+  ta.value = initial;
+  ta.setAttribute('aria-label', 'Texte du jour');
+
+  const actions = document.createElement('div');
+  actions.className = 'detail-carousel-text-edit-actions';
+  const btnOk = document.createElement('button');
+  btnOk.type = 'button';
+  btnOk.className = 'detail-carousel-text-save';
+  btnOk.setAttribute('aria-label', 'Valider');
+  btnOk.textContent = '✓';
+  const btnCancel = document.createElement('button');
+  btnCancel.type = 'button';
+  btnCancel.className = 'detail-carousel-text-cancel';
+  btnCancel.setAttribute('aria-label', 'Annuler');
+  btnCancel.textContent = '✕';
+  actions.appendChild(btnOk);
+  actions.appendChild(btnCancel);
+
+  block.appendChild(ta);
+  block.appendChild(actions);
+
+  const cleanup = () => {
+    if (ta.isConnected) ta.remove();
+    if (actions.isConnected) actions.remove();
+    p.hidden = false;
+    pencilBtn.hidden = false;
+  };
+
+  btnCancel.addEventListener('click', ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    cleanup();
+  });
+
+  btnOk.addEventListener('click', ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    void (async () => {
+      const v = ta.value;
+      const prev = String(row.texte ?? '');
+      if (v === prev) {
+        cleanup();
+        return;
+      }
+      let ok = false;
+      try {
+        const { error } = await supabase.from('journal_entries').update({ texte: v }).eq('id', entryId);
+        if (error) throw error;
+        ok = true;
+      } catch (e) {
+        logSupabaseErr('[journal_entries] carousel texte', e);
+        toast("Impossible d'enregistrer le texte");
+        cleanup();
+        return;
+      }
+      if (ok) {
+        row.texte = v;
+        const disp = String(v || '').trim();
+        p.innerHTML = disp ? escHtml(disp).replace(/\n/g, '<br>') : '—';
+        void (async () => {
+          try {
+            await refreshJournalEntriesFromSupabase();
+            renderJournalEntriesList();
+          } catch {
+            /* ignore */
+          }
+        })();
+        toast('Texte mis à jour ✦');
+      }
+      cleanup();
+    })();
+  });
+
+  queueMicrotask(() => ta.focus());
 }
 
 function detailCarouselShortDestination(raw) {
@@ -1097,11 +1193,19 @@ function initDetailCarouselInteraction() {
   carouselEl.dataset.carouselNavInit = '1';
 
   carouselEl.addEventListener('click', ev => {
-    const btn = ev.target.closest('.detail-carousel-slide-date-btn');
-    if (!btn || !carouselEl.contains(btn)) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    detailCarouselOpenDateEditor(btn);
+    const datePencil = ev.target.closest('.detail-carousel-edit-date');
+    if (datePencil && carouselEl.contains(datePencil)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      detailCarouselOpenDateEditor(datePencil);
+      return;
+    }
+    const textPencil = ev.target.closest('.detail-carousel-edit-text');
+    if (textPencil && carouselEl.contains(textPencil)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      detailCarouselOpenTextEditor(textPencil);
+    }
   });
 
   let touchStartX = 0;
@@ -1139,7 +1243,8 @@ function initDetailCarouselInteraction() {
 }
 
 function detailCarouselSlideHtmlFromRow(r) {
-  const txt = String(r.texte || '').trim() || '—';
+  const rawTxt = String(r.texte ?? '');
+  const trimmed = rawTxt.trim();
   const photos = coercePhotosUrls(r.photos ?? []);
   const thumbs =
     photos.length > 0
@@ -1149,16 +1254,31 @@ function detailCarouselSlideHtmlFromRow(r) {
       : '';
   const ymdAttr = journalEntryYmdForPicker(r.date);
   const dlab = detailCarouselSlideDateLabel(r.date);
+  const locShort = detailCarouselShortDestination(r.destination);
+  const dateLineText = `${dlab || '—'} — ${locShort}`;
   const eid = r.id != null ? String(r.id) : '';
   const dateHtml =
     eid !== ''
-      ? `<div class="detail-carousel-slide-date-wrap">
-        <button type="button" class="detail-carousel-slide-date-btn" data-entry-id="${escHtml(eid)}" data-date-iso="${escHtml(ymdAttr)}">${escHtml(dlab || '—')}</button>
-      </div>`
-      : `<div class="detail-carousel-slide-date-wrap"><span class="detail-carousel-slide-date-static">${escHtml(dlab || '—')}</span></div>`;
+      ? `<div class="detail-carousel-slide-date-line">
+      <span class="detail-carousel-slide-datetext">${escHtml(dateLineText)}</span>
+      <button type="button" class="detail-carousel-edit-icon detail-carousel-edit-date" data-entry-id="${escHtml(eid)}" data-date-iso="${escHtml(ymdAttr)}" title="Modifier la date" aria-label="Modifier la date">✏️</button>
+    </div>`
+      : `<div class="detail-carousel-slide-date-line"><span class="detail-carousel-slide-datetext">${escHtml(dateLineText)}</span></div>`;
+
+  const pBody = trimmed
+    ? escHtml(trimmed).replace(/\n/g, '<br>')
+    : '—';
+  const bodyHtml =
+    eid !== ''
+      ? `<div class="detail-carousel-body-block" data-entry-id="${escHtml(eid)}">
+      <button type="button" class="detail-carousel-edit-icon detail-carousel-edit-text" data-entry-id="${escHtml(eid)}" title="Modifier le texte" aria-label="Modifier le texte">✏️</button>
+      <p class="detail-carousel-body">${pBody}</p>
+    </div>`
+      : `<p class="detail-carousel-body">${pBody}</p>`;
+
   return `<div class="detail-carousel-slide" role="group" aria-roledescription="slide">
         ${dateHtml}
-        <p class="detail-carousel-body">${escHtml(txt).replace(/\n/g, '<br>')}</p>
+        ${bodyHtml}
         ${thumbs}
       </div>`;
 }
