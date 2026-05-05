@@ -932,32 +932,6 @@ async function fetchJournalEntriesForFicheDetail(voyageId) {
   return Array.isArray(data) ? data : [];
 }
 
-function detailCarouselSlideDateLabel(iso) {
-  if (iso == null) return '';
-  let ymd = '';
-  if (typeof iso === 'string') {
-    const t = iso.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) ymd = t;
-    else if (t.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(t)) ymd = t.slice(0, 10);
-  }
-  if (!ymd && iso instanceof Date && !Number.isNaN(iso.getTime())) {
-    const x = iso;
-    ymd = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-  }
-  if (!ymd) return '';
-  const d = new Date(`${ymd}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '';
-  const s = d
-    .toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    })
-    .replace(/\.$/, '');
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-}
-
 function journalEntryYmdForPicker(iso) {
   if (iso == null) return '';
   if (typeof iso === 'string') {
@@ -969,96 +943,12 @@ function journalEntryYmdForPicker(iso) {
 }
 
 function detailCarouselHasInlineField() {
-  return !!document.querySelector(
-    '#detail-journal-carousel input.detail-carousel-slide-date-input, #detail-journal-carousel textarea.detail-carousel-inline-text'
-  );
-}
-
-function detailCarouselBeginHeadDateEdit() {
-  const head = document.getElementById('detail-carousel-head');
-  if (!head || head.querySelector('input.detail-carousel-slide-date-input')) return;
-  if (document.querySelector('#detail-journal-carousel textarea.detail-carousel-inline-text')) return;
-
-  const { idx, rows } = detailCarouselState;
-  const row = rows[idx];
-  if (!row || row.id == null) return;
-
-  const entryId = String(row.id);
-  let ymd = journalEntryYmdForPicker(row.date);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = isoDateLocal(new Date());
-
-  head.replaceChildren();
-  const inp = document.createElement('input');
-  inp.type = 'date';
-  inp.className = 'detail-carousel-slide-date-input detail-carousel-head-date-input';
-  inp.setAttribute('aria-label', 'Modifier la date');
-  inp.value = ymd;
-  head.appendChild(inp);
-
-  let settled = false;
-  const finish = async () => {
-    if (settled) return;
-    settled = true;
-    const v = String(inp.value || '').trim();
-    const prevYmd = journalEntryYmdForPicker(row.date);
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-      detailCarouselUpdateHead();
-      return;
-    }
-    if (v === prevYmd) {
-      detailCarouselUpdateHead();
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('journal_entries')
-        .update({ date: v, texte: String(row.texte ?? '') })
-        .eq('id', entryId);
-      if (error) throw error;
-    } catch (e) {
-      logSupabaseErr('[journal_entries] carousel date', e);
-      toast("Impossible de mettre à jour la date");
-      detailCarouselUpdateHead();
-      return;
-    }
-
-    detailCarouselApplyEntrySave(entryId, v, String(row.texte ?? ''));
-
-    void (async () => {
-      try {
-        await refreshJournalEntriesFromSupabase();
-        renderJournalEntriesList();
-      } catch {
-        /* ignore */
-      }
-    })();
-
-    toast('Entrée mise à jour ✦');
-  };
-
-  queueMicrotask(() => {
-    inp.focus();
-    try {
-      inp.showPicker();
-    } catch {
-      /* navigateurs sans showPicker */
-    }
-  });
-
-  inp.addEventListener('change', () => void finish());
-  inp.addEventListener('blur', () => {
-    queueMicrotask(() => {
-      if (!settled) void finish();
-    });
-  });
+  return !!document.querySelector('#detail-journal-carousel textarea.detail-carousel-inline-text');
 }
 
 function detailCarouselBeginTextEdit(p) {
   const slide = p.closest('.detail-carousel-slide');
   if (!slide || slide.querySelector('textarea.detail-carousel-inline-text')) return;
-  if (slide.querySelector('input.detail-carousel-slide-date-input')) return;
 
   const entryId = slide.getAttribute('data-entry-id');
   if (!entryId) return;
@@ -1116,41 +1006,6 @@ function detailCarouselBeginTextEdit(p) {
   queueMicrotask(() => ta.focus());
 }
 
-function detailCarouselShortDestination(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return '—';
-  const parts = s
-    .split(',')
-    .map(p => p.trim())
-    .filter(Boolean);
-  if (parts.length === 0) return '—';
-  if (parts.length === 1) return parts[0];
-  return parts.slice(-2).join(', ');
-}
-
-function detailCarouselUpdateHead() {
-  const head = document.getElementById('detail-carousel-head');
-  const { idx, rows } = detailCarouselState;
-  if (!head || !rows[idx]) return;
-  const r = rows[idx];
-  const dlab = detailCarouselSlideDateLabel(r.date);
-  const loc = detailCarouselShortDestination(r.destination);
-  const datePart = dlab ? `${escHtml(dlab)}` : '—';
-  const locPart = escHtml(loc);
-  head.innerHTML = `${datePart} — ${locPart}`;
-  if (r.id != null) {
-    head.classList.add('detail-carousel-head--editable');
-    head.setAttribute('role', 'button');
-    head.setAttribute('tabindex', '0');
-    head.setAttribute('aria-label', 'Modifier la date du jour');
-  } else {
-    head.classList.remove('detail-carousel-head--editable');
-    head.removeAttribute('role');
-    head.removeAttribute('tabindex');
-    head.removeAttribute('aria-label');
-  }
-}
-
 function detailCarouselGoTo(i, opts = {}) {
   const { skipInlineCheck = false } = opts;
   if (!skipInlineCheck && detailCarouselHasInlineField()) return;
@@ -1169,7 +1024,6 @@ function detailCarouselGoTo(i, opts = {}) {
     dot.textContent = on ? '●' : '○';
     dot.setAttribute('aria-current', on ? 'true' : 'false');
   });
-  detailCarouselUpdateHead();
 }
 
 function detailCarouselStep(delta) {
@@ -1188,18 +1042,6 @@ function initDetailCarouselInteraction() {
   carouselEl.dataset.carouselNavInit = '1';
 
   carouselEl.addEventListener('click', ev => {
-    const headEl = ev.target.closest('#detail-carousel-head');
-    if (
-      headEl &&
-      carouselEl.contains(headEl) &&
-      headEl.classList.contains('detail-carousel-head--editable') &&
-      !headEl.querySelector('input.detail-carousel-slide-date-input')
-    ) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      detailCarouselBeginHeadDateEdit();
-      return;
-    }
     const textHit = ev.target.closest('.detail-carousel-text-editable');
     if (textHit && carouselEl.contains(textHit) && textHit.tagName === 'P') {
       ev.preventDefault();
@@ -1210,17 +1052,6 @@ function initDetailCarouselInteraction() {
 
   carouselEl.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    const headEl = ev.target.closest?.('#detail-carousel-head');
-    if (
-      headEl &&
-      carouselEl.contains(headEl) &&
-      headEl.classList.contains('detail-carousel-head--editable') &&
-      !headEl.querySelector('input.detail-carousel-slide-date-input')
-    ) {
-      ev.preventDefault();
-      detailCarouselBeginHeadDateEdit();
-      return;
-    }
     const textHit = ev.target.closest?.('.detail-carousel-text-editable');
     if (textHit && carouselEl.contains(textHit) && textHit.tagName === 'P') {
       ev.preventDefault();
@@ -1379,7 +1210,6 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
     <div class="detail-carousel" id="detail-journal-carousel">
       <div class="detail-carousel-top">
         <button type="button" class="detail-carousel-btn" aria-label="Jour précédent" onclick="detailCarouselStep(-1)">←</button>
-        <div class="detail-carousel-head" id="detail-carousel-head" aria-live="polite"></div>
         <button type="button" class="detail-carousel-btn" aria-label="Jour suivant" onclick="detailCarouselStep(1)">→</button>
       </div>
       <div class="detail-carousel-viewport" id="detail-carousel-viewport">
@@ -1390,7 +1220,6 @@ async function mountDetailJournalCarousel(idx, f, opts = {}) {
   </div>${orphanPhotosHtml}`;
 
   detailCarouselState = { idx: 0, count: rows.length, rows };
-  detailCarouselUpdateHead();
   initDetailCarouselInteraction();
 }
 
