@@ -157,8 +157,13 @@ let journalEntryDateISO = '';
 
 let locDebounceTimer = null;
 
-function frenchLongDateLabel(d) {
-  return new Date(d).toLocaleDateString('fr-FR', {
+/** Formatage de la date en français (évite le décalage jour pour les ISO AAAA-MM-JJ). */
+function formatDateFR(dateStr) {
+  const raw = String(dateStr || '').trim();
+  const asParse = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw;
+  const d = new Date(asParse);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -173,14 +178,28 @@ function isoDateLocal(d) {
 
 function setJournalDateDisplay(label) {
   const btn = document.getElementById('journal-date-display-btn');
-  if (!btn || !label) return;
-  btn.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+  if (!btn) return;
+  let text = String(label || '').trim();
+  if (!text && /^\d{4}-\d{2}-\d{2}$/.test(journalEntryDateISO))
+    text = formatDateFR(journalEntryDateISO);
+  if (!text) {
+    const today = isoDateLocal(new Date());
+    journalEntryDateISO = /^\d{4}-\d{2}-\d{2}$/.test(journalEntryDateISO) ? journalEntryDateISO : today;
+    text = formatDateFR(journalEntryDateISO);
+  }
+  if (!text) text = '—';
+  btn.textContent = text.charAt(0).toUpperCase() + text.slice(1);
+  btn.hidden = false;
+  btn.removeAttribute('hidden');
 }
 
 function hideJournalDatePickerUi() {
   const btn = document.getElementById('journal-date-display-btn');
   const inp = document.getElementById('journal-date-input');
-  if (btn) btn.hidden = false;
+  if (btn) {
+    btn.hidden = false;
+    btn.removeAttribute('hidden');
+  }
   if (inp) inp.hidden = true;
 }
 
@@ -213,22 +232,17 @@ function applyJournalDateFromInput() {
   const v = String(inp.value || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
     hideJournalDatePickerUi();
+    setJournalDateDisplay(formatDateFR(journalEntryDateISO));
     return;
   }
   journalEntryDateISO = v;
-  const parsed = new Date(`${v}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
+  const fr = formatDateFR(v);
+  if (!fr) {
     hideJournalDatePickerUi();
+    setJournalDateDisplay(formatDateFR(journalEntryDateISO));
     return;
   }
-  setJournalDateDisplay(
-    parsed.toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    })
-  );
+  setJournalDateDisplay(fr);
   hideJournalDatePickerUi();
 }
 
@@ -243,7 +257,7 @@ function onJournalDateInputBlur() {
 function applyBrowserJournalDate() {
   const d = new Date();
   journalEntryDateISO = isoDateLocal(d);
-  setJournalDateDisplay(frenchLongDateLabel(d));
+  setJournalDateDisplay(formatDateFR(journalEntryDateISO));
 }
 
 async function refreshJournalDisplayedDate() {
@@ -260,16 +274,9 @@ async function refreshJournalDisplayedDate() {
       if (typeof dateTime !== 'string' || dateTime.length < 10) throw new Error('missing dateTime');
 
       journalEntryDateISO = dateTime.slice(0, 10);
-      const parsed = new Date(dateTime);
-      if (Number.isNaN(parsed.getTime())) throw new Error('invalid date');
-      setJournalDateDisplay(
-        parsed.toLocaleDateString('fr-FR', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric'
-        })
-      );
+      const fr = formatDateFR(journalEntryDateISO);
+      if (!fr) throw new Error('invalid date');
+      setJournalDateDisplay(fr);
     } catch {
       applyBrowserJournalDate();
     }
@@ -553,14 +560,9 @@ async function editJournalEntry(ev, entryId) {
 
   if (typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
     journalEntryDateISO = row.date;
-    setJournalDateDisplay(
-      new Date(`${row.date}T12:00:00`).toLocaleDateString('fr-FR', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric'
-      })
-    );
+    setJournalDateDisplay(formatDateFR(row.date));
+  } else {
+    applyBrowserJournalDate();
   }
 
   clearLocation();
@@ -687,6 +689,8 @@ function initPhotoDropZone() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyBrowserJournalDate();
+
   initPhotoDropZone();
 
   // Close location dropdown on outside click
@@ -704,6 +708,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderFicheList();
       showSharedFiche(sharedFiche);
       updateNavBar();
+      applyBrowserJournalDate();
       return;
     } catch (e) {
       console.warn('Shared fiche parse error:', e);
