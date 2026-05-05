@@ -662,12 +662,16 @@ function ficheCitiesSubtitle(f) {
   return arr.map(x => String(x).trim()).filter(Boolean).join(' · ');
 }
 
-/** Libellé pour résolution du drapeau (destination principale / première ville). */
-function primaryLabelForFicheFlag(f) {
+/** Chaîne « destination » pour le drapeau : priorité au champ dest (…, pays), pas à une seule ville. */
+function destStringForFlag(f) {
   if (!f) return '';
-  const v0 = coerceJsonArray(f.villes).find(Boolean);
-  if (v0) return String(v0);
-  return String(f.dest || '').trim();
+  const d = String(f.dest || '').trim();
+  if (d) return d;
+  const villes = coerceJsonArray(f.villes)
+    .map(x => String(x).trim())
+    .filter(Boolean);
+  if (villes.length) return villes[villes.length - 1];
+  return String(f.voyageNom || '').trim();
 }
 
 // ══════════════════════════════════════
@@ -695,6 +699,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   initPhotoDropZone();
   bindFicheModifierClickCapture();
+  bindDetailViewEditCapture();
 
   // Close location dropdown on outside click
   document.addEventListener('click', e => {
@@ -917,11 +922,12 @@ function scheduleDetailCountryFlag(f) {
   (async () => {
     let url = null;
     try {
-      url = await resolveCircleFlagSvgUrl(primaryLabelForFicheFlag(f) || f.dest || '', f.countryCode || '');
+      url = await resolveCircleFlagSvgUrl(destStringForFlag(f), f.countryCode || '');
     } catch {
       /* silence */
     }
     if (gen !== _detailFlagGen || !wrap.isConnected || !url) return;
+    wrap.removeAttribute('aria-hidden');
     wrap.innerHTML =
       `<img class="detail-flag-img" src="${escHtml(url)}" alt="" width="80" height="80" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
   })();
@@ -1169,7 +1175,7 @@ function renderFicheDetail(idx) {
       <button type="button" class="btn-detail-cancel" onclick="event.stopPropagation(); cancelFicheDetailEdit()">Annuler</button>
     </div>`
     : `<div class="detail-actions" onclick="event.stopPropagation()">
-      <button type="button" class="btn-detail-edit" onclick="event.stopPropagation(); enterFicheDetailEditMode()">Modifier</button>
+      <button type="button" class="btn-detail-edit">Modifier</button>
       <button type="button" class="btn-detail-pdf" onclick="event.stopPropagation(); exportFichePDF(${idx})">↓ PDF</button>
     </div>`;
 
@@ -1577,18 +1583,19 @@ function extractCountry(dest) {
   return parts[parts.length - 1].trim();
 }
 
-async function circleFlagSvgUrlFromCountryName(countryName) {
-  const name = String(countryName || '').trim();
-  if (!name) return null;
-  const apiUrl = `https://restcountries.com/v3.1/translation/${encodeURIComponent(name)}?fields=cca2`;
+async function getFlag(dest) {
+  const raw = String(dest || '').trim();
+  if (!raw) return null;
+  const pays = raw.split(',').pop().trim();
+  if (!pays) return null;
   try {
-    const r = await fetch(apiUrl);
-    if (!r.ok) return null;
-    const data = await r.json();
-    const hit = Array.isArray(data) && data[0];
-    const cca2 = hit?.cca2;
-    if (!cca2 || !/^[a-z]{2}$/i.test(String(cca2))) return null;
-    return `${CIRCLE_FLAGS_BASE}/${String(cca2).toLowerCase()}.svg`;
+    const res = await fetch(`https://restcountries.com/v3.1/translation/${encodeURIComponent(pays)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data[0]?.cca2) return null;
+    const code = String(data[0].cca2).toLowerCase();
+    if (!/^[a-z]{2}$/.test(code)) return null;
+    return `${CIRCLE_FLAGS_BASE}/${code}.svg`;
   } catch {
     return null;
   }
@@ -1598,9 +1605,14 @@ async function circleFlagSvgUrlFromCountryName(countryName) {
 async function resolveCircleFlagSvgUrl(dest, storedCca2) {
   const raw = typeof storedCca2 === 'string' ? storedCca2.trim() : '';
   if (/^[a-z]{2}$/i.test(raw)) return `${CIRCLE_FLAGS_BASE}/${raw.toLowerCase()}.svg`;
-  const country = extractCountry(dest);
+  const d = String(dest || '').trim();
+  if (!d) return null;
+  const fromApi = await getFlag(d);
+  if (fromApi) return fromApi;
+  const country = extractCountry(d);
   if (!country) return null;
-  return circleFlagSvgUrlFromCountryName(country);
+  const iso = isoFromCountryName(country);
+  return iso ? `${CIRCLE_FLAGS_BASE}/${iso.toLowerCase()}.svg` : null;
 }
 
 // ══════════════════════════════════════
@@ -1952,6 +1964,27 @@ function bindFicheModifierClickCapture() {
     true
   );
 }
+
+/** « Modifier » sur le panneau détail : uniquement mode édition in-place, jamais navigation (capture avant header / onglets). */
+function bindDetailViewEditCapture() {
+  const root = document.getElementById('detailView');
+  if (!root || root.dataset.detailEditCapture === '1') return;
+  root.dataset.detailEditCapture = '1';
+  root.addEventListener(
+    'click',
+    ev => {
+      const btn = ev.target.closest('.btn-detail-edit');
+      if (!btn || !root.contains(btn)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.stopImmediatePropagation();
+      enterFicheDetailEditMode();
+    },
+    true
+  );
+}
+
+function mergeUniqueNormalized(base, additions) {
   const out = Array.isArray(base) ? [...base] : [];
   const seen = new Set(out.map(x => String(x).toLowerCase().trim()));
   for (const x of additions || []) {
@@ -2323,7 +2356,7 @@ async function scheduleFicheListFlags(renderGen) {
       if (!f) return;
       let url = null;
       try {
-        url = await resolveCircleFlagSvgUrl(primaryLabelForFicheFlag(f) || f.dest || '', f.countryCode || '');
+        url = await resolveCircleFlagSvgUrl(destStringForFlag(f), f.countryCode || '');
       } catch {
         /* silence */
       }
